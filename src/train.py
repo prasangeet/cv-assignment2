@@ -1,4 +1,4 @@
-"""Simple, reproducible SwiftMask-inspired training pipeline."""
+"""Reproducible training for the SwiftMask-inspired DUTS segmentation model."""
 from __future__ import annotations
 
 import argparse
@@ -14,17 +14,16 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader, Subset
 from tqdm.auto import tqdm
 
-from models.segmentation_cnn import SegmentationCNN
+from models.segmentation_cnn import SegmentationCNN, count_parameters
 from src.dataset import DUTSDataset
 
 
 class BCEDiceLoss(nn.Module):
-    """Stable combination of pixel-wise BCE and soft Dice losses."""
+    """Equal-weight BCE-with-logits and per-image soft Dice loss."""
 
     def __init__(self, dice_weight: float = 0.5, smooth: float = 1.0):
         super().__init__()
@@ -38,11 +37,13 @@ class BCEDiceLoss(nn.Module):
         logits = logits.float()
         targets = targets.float()
         bce = self.bce(logits, targets)
-        probs = torch.sigmoid(logits).flatten(1)
-        target = targets.flatten(1)
-        intersection = (probs * target).sum(dim=1)
-        denominator = probs.sum(dim=1) + target.sum(dim=1)
-        dice = (2.0 * intersection + self.smooth) / (denominator + self.smooth)
+        probabilities = torch.sigmoid(logits).flatten(1)
+        targets = targets.flatten(1)
+        intersection = (probabilities * targets).sum(dim=1)
+        denominator = probabilities.sum(dim=1) + targets.sum(dim=1)
+        dice = (2.0 * intersection + self.smooth) / (
+            denominator + self.smooth
+        )
         dice_loss = 1.0 - dice.mean()
         return (1.0 - self.dice_weight) * bce + self.dice_weight * dice_loss
 
@@ -55,14 +56,23 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def make_loaders(data_root: Path, batch_size: int, workers: int, seed: int, limit: int | None):
-    # Two dataset instances share exactly the same ordered samples but have
-    # independent augmentation settings. This prevents augmenting validation.
-    train_all = DUTSDataset(data_root, split="DUTS-TR", image_size=128, augment=True)
-    valid_all = DUTSDataset(data_root, split="DUTS-TR", image_size=128, augment=False)
-
-    if len(train_all) != len(valid_all):
-        raise RuntimeError("Train/validation dataset sample lists do not match.")
+def make_loaders(
+    data_root: Path,
+    batch_size: int,
+    workers: int,
+    seed: int,
+    limit: int | None = None,
+    image_size: int = 128,
+):
+    # Separate instances ensure validation never receives random augmentation.
+    train_all = DUTSDataset(
+        data_root, split="DUTS-TR", image_size=image_size, augment=True
+    )
+    valid_all = DUTSDataset(
+        data_root, split="DUTS-TR", image_size=image_size, augment=False
+    )
+    if [p[0].name for p in train_all.samples] != [p[0].name for p in valid_all.samples]:
+        raise RuntimeError("Training and validation sample ordering differs.")
 
     count = len(train_all) if limit is None else min(limit, len(train_all))
     if count < 2:
@@ -71,8 +81,7 @@ def make_loaders(data_root: Path, batch_size: int, workers: int, seed: int, limi
     generator = torch.Generator().manual_seed(seed)
     indices = torch.randperm(count, generator=generator).tolist()
     val_count = max(1, round(count * 0.10))
-    train_indices = indices[val_count:]
-    val_indices = indices[:val_count]
+    val_indices, train_indices = indices[:val_count], indices[val_count:]
     if not train_indices:
         raise ValueError("Training split is empty; increase --limit.")
 
@@ -86,102 +95,157 @@ def make_loaders(data_root: Path, batch_size: int, workers: int, seed: int, limi
     }
     if workers > 0:
         common["prefetch_factor"] = 2
-
-    train_loader = DataLoader(train_set, shuffle=True, **common)
-    val_loader = DataLoader(val_set, shuffle=False, **common)
-    return train_loader, val_loader
-
-
-def segmentation_metrics(logits: torch.Tensor, masks: torch.Tensor) -> tuple[float, float, float]:
-    predictions = torch.sigmoid(logits) >= 0.5
-    targets = masks >= 0.5
-    tp = (predictions & targets).sum().item()
-    fp = (predictions & ~targets).sum().item()
-    fn = (~predictions & targets).sum().item()
-    tn = (~predictions & ~targets).sum().item()
-    fg_iou = tp / max(tp + fp + fn, 1)
-    bg_iou = tn / max(tn + fp + fn, 1)
-    return (fg_iou + bg_iou) / 2.0, fg_iou, bg_iou
+    return (
+        DataLoader(train_set, shuffle=True, **common),
+        DataLoader(val_set, shuffle=False, **common),
+    )
 
 
-def run_epoch(model, loader, criterion, device, optimizer=None, scaler=None, amp=False, phase="Train"):
+def _iou_counts(logits: torch.Tensor, masks: torch.Tensor):
+    pred = torch.sigmoid(logits.float()) >= 0.5
+    target = masks >= 0.5
+    tp = (pred & target).sum().item()
+    fp = (pred & ~target).sum().item()
+    fn = (~pred & target).sum().item()
+    tn = (~pred & ~target).sum().item()
+    return tp, fp, fn, tn
+
+
+def _metrics(tp: int, fp: int, fn: int, tn: int) -> dict[str, float]:
+    fg = tp / max(tp + fp + fn, 1)
+    bg = tn / max(tn + fp + fn, 1)
+    return {
+        "miou": (fg + bg) / 2.0,
+        "foreground_iou": fg,
+        "background_iou": bg,
+    }
+
+
+def run_epoch(
+    model: nn.Module,
+    loader: DataLoader,
+    criterion: nn.Module,
+    device: torch.device,
+    optimizer=None,
+    scaler=None,
+    scheduler=None,
+    use_amp: bool = False,
+    channels_last: bool = False,
+    epoch: int = 0,
+    total_epochs: int = 0,
+    log_interval: int = 25,
+    accumulation_steps: int = 1,
+):
+    """Run one training or validation epoch; retained for the existing tests."""
     training = optimizer is not None
     model.train(training)
     total_loss = 0.0
-    samples = 0
-    total_tp = total_fp = total_fn = total_tn = 0
+    total_samples = 0
+    tp = fp = fn = tn = 0
+    optimizer_steps = 0
+    optimizer.zero_grad(set_to_none=True) if training else None
 
-    progress = tqdm(loader, desc=phase, leave=False)
-    for images, masks in progress:
-        images = images.to(device, non_blocking=True)
-        masks = masks.to(device, non_blocking=True)
-
-        if training:
-            optimizer.zero_grad(set_to_none=True)
+    progress = tqdm(
+        loader,
+        desc=f"Epoch {epoch}/{total_epochs} [{'Train' if training else 'Valid'}]",
+        leave=False,
+        dynamic_ncols=True,
+    )
+    for step, (images, masks) in enumerate(progress, start=1):
+        images = images.to(device, non_blocking=device.type == "cuda")
+        masks = masks.to(device, non_blocking=device.type == "cuda")
+        if channels_last:
+            images = images.contiguous(memory_format=torch.channels_last)
 
         with torch.set_grad_enabled(training):
-            with torch.amp.autocast(device_type=device.type, enabled=amp):
+            with torch.amp.autocast(
+                device_type=device.type,
+                dtype=torch.float16,
+                enabled=use_amp,
+            ):
                 logits = model(images)
                 loss = criterion(logits, masks)
 
             if training:
-                scaler.scale(loss).backward()
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
-                scaler.step(optimizer)
-                scaler.update()
+                scaled_loss = loss / accumulation_steps
+                if scaler is not None and use_amp:
+                    scaler.scale(scaled_loss).backward()
+                else:
+                    scaled_loss.backward()
 
-        with torch.no_grad():
-            pred = torch.sigmoid(logits.float()) >= 0.5
-            target = masks >= 0.5
-            total_tp += (pred & target).sum().item()
-            total_fp += (pred & ~target).sum().item()
-            total_fn += (~pred & target).sum().item()
-            total_tn += (~pred & ~target).sum().item()
+                if step % accumulation_steps == 0 or step == len(loader):
+                    if scaler is not None and use_amp:
+                        scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 2.0)
+                    if scaler is not None and use_amp:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        optimizer.step()
+                    optimizer.zero_grad(set_to_none=True)
+                    optimizer_steps += 1
+                    if scheduler is not None:
+                        scheduler.step()
 
         batch = images.size(0)
-        total_loss += loss.item() * batch
-        samples += batch
-        progress.set_postfix(loss=f"{total_loss / max(samples, 1):.4f}")
+        total_loss += loss.detach().float().item() * batch
+        total_samples += batch
+        btp, bfp, bfn, btn = _iou_counts(logits.detach(), masks)
+        tp += int(btp)
+        fp += int(bfp)
+        fn += int(bfn)
+        tn += int(btn)
+        progress.set_postfix(
+            loss=f"{total_loss / max(total_samples, 1):.4f}",
+            miou=f"{_metrics(tp, fp, fn, tn)['miou']:.4f}",
+        )
 
-    fg_iou = total_tp / max(total_tp + total_fp + total_fn, 1)
-    bg_iou = total_tn / max(total_tn + total_fp + total_fn, 1)
-    miou = (fg_iou + bg_iou) / 2.0
-    return total_loss / max(samples, 1), miou, fg_iou, bg_iou
+    progress.close()
+    if not total_samples:
+        raise RuntimeError("DataLoader produced no samples.")
+    result = _metrics(tp, fp, fn, tn)
+    return total_loss / total_samples, result
 
 
 def save_history(history: list[dict], output_dir: Path) -> None:
-    with (output_dir / "history.json").open("w", encoding="utf-8") as f:
-        json.dump(history, f, indent=2)
-    with (output_dir / "history.csv").open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(history[0]))
-        writer.writeheader()
-        writer.writerows(history)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / "history.json").write_text(
+        json.dumps(history, indent=2), encoding="utf-8"
+    )
+    if history:
+        with (output_dir / "history.csv").open(
+            "w", newline="", encoding="utf-8"
+        ) as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(history[0]))
+            writer.writeheader()
+            writer.writerows(history)
 
-    epochs = [r["epoch"] for r in history]
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(epochs, [r["train_loss"] for r in history], label="Train loss")
-    ax.plot(epochs, [r["val_loss"] for r in history], label="Validation loss")
-    ax.set(xlabel="Epoch", ylabel="Loss", title="Training history")
-    ax.grid(alpha=0.25)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(output_dir / "loss_curve.png", dpi=150)
-    plt.close(fig)
+        epochs = [row["epoch"] for row in history]
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.plot(epochs, [r["train_loss"] for r in history], label="Train loss")
+        ax.plot(epochs, [r["val_loss"] for r in history], label="Validation loss")
+        ax.set(xlabel="Epoch", ylabel="Loss", title="Training history")
+        ax.grid(alpha=0.25)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(output_dir / "loss_curve.png", dpi=150)
+        plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.plot(epochs, [r["val_miou"] for r in history], label="Validation mIoU")
-    ax.plot(epochs, [r["val_fg_iou"] for r in history], label="Foreground IoU")
-    ax.set(xlabel="Epoch", ylabel="IoU", ylim=(0, 1), title="Validation segmentation quality")
-    ax.grid(alpha=0.25)
-    ax.legend()
-    fig.tight_layout()
-    fig.savefig(output_dir / "validation_iou.png", dpi=150)
-    plt.close(fig)
+        fig, ax = plt.subplots(figsize=(8, 5))
+        ax.plot(epochs, [r["val_miou"] for r in history], label="Validation mIoU")
+        ax.plot(epochs, [r["val_foreground_iou"] for r in history], label="Foreground IoU")
+        ax.set(xlabel="Epoch", ylabel="IoU", ylim=(0, 1), title="Validation quality")
+        ax.grid(alpha=0.25)
+        ax.legend()
+        fig.tight_layout()
+        fig.savefig(output_dir / "validation_iou.png", dpi=150)
+        plt.close(fig)
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Train SwiftMask-inspired lightweight segmentation model.")
+    parser = argparse.ArgumentParser(
+        description="Train the lightweight SwiftMask-inspired segmentation model."
+    )
     parser.add_argument("--data", type=Path, default=Path("data"))
     parser.add_argument("--output-dir", type=Path, default=Path("experiments/swiftmask_v2"))
     parser.add_argument("--epochs", type=int, default=40)
@@ -190,16 +254,19 @@ def parse_args():
     parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--limit", type=int, default=None, help="Optional subset for a smoke test.")
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--image-size", type=int, default=128)
     parser.add_argument("--no-amp", action="store_true")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
     if args.epochs < 1 or args.batch_size < 1 or args.workers < 0:
-        parser.error("epochs/batch-size must be positive and workers non-negative")
+        parser.error("epochs and batch-size must be positive; workers non-negative")
     if args.learning_rate <= 0 or args.weight_decay < 0:
-        parser.error("learning rate must be positive and weight decay non-negative")
+        parser.error("learning rate must be positive; weight decay non-negative")
     if args.limit is not None and args.limit < 2:
         parser.error("--limit must be at least 2")
+    if args.image_size < 32:
+        parser.error("--image-size must be at least 32")
     return args
 
 
@@ -210,106 +277,134 @@ def main():
     torch.set_num_threads(1)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    amp = device.type == "cuda" and not args.no_amp
-
+    use_amp = device.type == "cuda" and not args.no_amp
     output_dir = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    best_path = output_dir / "model_best.pt"
     history_path = output_dir / "history.json"
     if history_path.exists() and not args.overwrite:
-        raise FileExistsError(f"{history_path} already exists. Use a new --output-dir or --overwrite.")
+        raise FileExistsError(
+            f"{history_path} exists. Choose a new --output-dir or pass --overwrite."
+        )
 
     train_loader, val_loader = make_loaders(
-        args.data, args.batch_size, args.workers, args.seed, args.limit
+        args.data, args.batch_size, args.workers, args.seed,
+        args.limit, args.image_size,
     )
     model = SegmentationCNN().to(device)
-    criterion = BCEDiceLoss(dice_weight=0.5)
+    if device.type == "cuda":
+        model = model.to(memory_format=torch.channels_last)
+    criterion = BCEDiceLoss()
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=args.epochs, eta_min=1e-6
+    steps_per_epoch = (
+        len(train_loader) + 0
     )
-    scaler = torch.amp.GradScaler("cuda", enabled=amp)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=args.epochs * max(steps_per_epoch, 1), eta_min=1e-6
+    )
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
     config = {
         "architecture": "SwiftMask-inspired RSU encoder-decoder",
         "train_split": "DUTS-TR",
-        "validation_split": "deterministic 10% subset of DUTS-TR",
-        "test_split": "DUTS-TE (not used during training)",
-        "input_size": 128,
+        "validation_split": "deterministic 10% of DUTS-TR",
+        "test_split": "DUTS-TE; never used for training or model selection",
+        "image_size": args.image_size,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
         "weight_decay": args.weight_decay,
         "seed": args.seed,
         "device": str(device),
-        "mixed_precision": amp,
+        "mixed_precision": use_amp,
         "loss": "0.5 BCEWithLogits + 0.5 SoftDice",
         "optimizer": "AdamW",
         "scheduler": "CosineAnnealingLR",
     }
-    (output_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
+    (output_dir / "config.json").write_text(
+        json.dumps(config, indent=2), encoding="utf-8"
+    )
 
     print(f"Device: {device}")
     if device.type == "cuda":
         print(f"GPU: {torch.cuda.get_device_name(0)}")
-    print(f"Train images: {len(train_loader.dataset)} | Validation images: {len(val_loader.dataset)}")
-    print(f"Input: 128x128 | Batch: {args.batch_size} | AMP: {amp}")
-    print(f"Outputs: {output_dir}")
+    print(
+        f"Train images: {len(train_loader.dataset)} | "
+        f"Validation images: {len(val_loader.dataset)}"
+    )
+    print(f"Resolution: {args.image_size}x{args.image_size} | AMP: {use_amp}")
+    print(f"Trainable parameters: {count_parameters(model):,}")
+    print(f"Experiment output: {output_dir}")
 
     history = []
     best_miou = -1.0
     best_val_loss = float("inf")
     for epoch in range(1, args.epochs + 1):
         started = time.perf_counter()
-        train_loss, _, _, _ = run_epoch(
-            model, train_loader, criterion, device, optimizer, scaler, amp, "Train"
+        train_loss, train_metrics = run_epoch(
+            model, train_loader, criterion, device,
+            optimizer=optimizer, scaler=scaler,
+            use_amp=use_amp, channels_last=device.type == "cuda",
+            epoch=epoch, total_epochs=args.epochs,
         )
-        val_loss, val_miou, fg_iou, bg_iou = run_epoch(
-            model, val_loader, criterion, device, None, scaler, amp, "Validation"
+        val_loss, val_metrics = run_epoch(
+            model, val_loader, criterion, device,
+            use_amp=use_amp, channels_last=device.type == "cuda",
+            epoch=epoch, total_epochs=args.epochs,
         )
-        scheduler.step()
         duration = time.perf_counter() - started
-        lr = optimizer.param_groups[0]["lr"]
-
+        scheduler_lr_before = optimizer.param_groups[0]["lr"]
         row = {
             "epoch": epoch,
             "train_loss": train_loss,
+            "train_miou": train_metrics["miou"],
             "val_loss": val_loss,
-            "val_miou": val_miou,
-            "val_fg_iou": fg_iou,
-            "val_bg_iou": bg_iou,
-            "learning_rate": lr,
+            "val_miou": val_metrics["miou"],
+            "val_foreground_iou": val_metrics["foreground_iou"],
+            "val_background_iou": val_metrics["background_iou"],
+            "learning_rate": scheduler_lr_before,
             "epoch_seconds": duration,
         }
         history.append(row)
         save_history(history, output_dir)
 
-        improved = val_miou > best_miou or (np.isclose(val_miou, best_miou) and val_loss < best_val_loss)
+        improved = (
+            val_metrics["miou"] > best_miou
+            or (
+                np.isclose(val_metrics["miou"], best_miou)
+                and val_loss < best_val_loss
+            )
+        )
         if improved:
-            best_miou = val_miou
+            best_miou = val_metrics["miou"]
             best_val_loss = val_loss
-            torch.save(model.state_dict(), best_path)
-
+            torch.save(model.state_dict(), output_dir / "model_best.pt")
         torch.save(model.state_dict(), output_dir / "model_latest.pt")
+        scheduler.step()
+
         print(
             f"Epoch {epoch:02d}/{args.epochs} | "
-            f"train_loss={train_loss:.4f} val_loss={val_loss:.4f} | "
-            f"val_mIoU={val_miou:.4f} (FG={fg_iou:.4f}, BG={bg_iou:.4f}) | "
-            f"lr={lr:.2e} time={duration:.1f}s"
+            f"train_loss={train_loss:.4f} train_mIoU={train_metrics['miou']:.4f} | "
+            f"val_loss={val_loss:.4f} val_mIoU={val_metrics['miou']:.4f} "
+            f"(FG={val_metrics['foreground_iou']:.4f}, "
+            f"BG={val_metrics['background_iou']:.4f}) | "
+            f"lr={scheduler_lr_before:.2e} time={duration:.1f}s"
             + (" | saved best" if improved else "")
         )
 
     summary = {
         "best_validation_miou": best_miou,
         "best_validation_loss": best_val_loss,
-        "best_checkpoint": str(best_path),
+        "best_checkpoint": str(output_dir / "model_best.pt"),
         "epochs_completed": len(history),
+        "trainable_parameters": count_parameters(model),
     }
-    (output_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    (output_dir / "summary.json").write_text(
+        json.dumps(summary, indent=2), encoding="utf-8"
+    )
     print(f"Training complete. Best validation mIoU: {best_miou:.4f}")
-    print(f"Best checkpoint: {best_path}")
+    print(f"Best checkpoint: {output_dir / 'model_best.pt'}")
 
 
 if __name__ == "__main__":
