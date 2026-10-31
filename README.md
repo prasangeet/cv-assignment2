@@ -68,7 +68,7 @@ uv run python -m src.evaluate \
   --checkpoint experiments/swiftmask_v2/model_best.pt
 ```
 
-Evaluation writes `results.json` and `segmentation_examples.png` alongside the checkpoint by default. The evaluator reports foreground IoU, background IoU, dataset-level mIoU, per-image Boundary F1, model inference time, and checkpoint size.
+Evaluation runs the full single-image inference path on CPU with one thread, matching the compute-budget benchmark setup. It writes `results.json` and `segmentation_examples.png` alongside the checkpoint by default. The report includes foreground/background IoU, dataset-level mIoU, per-image Boundary F1, CPU milliseconds per image, checkpoint size, quality score Q, and CES.
 
 ## Notes
 
