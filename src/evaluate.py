@@ -17,6 +17,7 @@ from torch.utils.data import DataLoader
 
 from models.segmentation_cnn import SegmentationCNN
 from src.dataset import DUTSDataset
+from src.metrics import boundary_f1 as boundary_f1_score
 
 
 def binary_metrics(confusion: np.ndarray) -> dict[str, float]:
@@ -31,29 +32,6 @@ def binary_metrics(confusion: np.ndarray) -> dict[str, float]:
         "background_iou": float(bg),
         "miou": float((fg + bg) / 2.0),
     }
-
-
-def boundary_f1(gt: np.ndarray, pred: np.ndarray, tolerance: int = 2) -> float:
-    """Symmetric boundary F1 using a square tolerance neighborhood."""
-    gt_edge = cv2.morphologyEx(
-        gt.astype(np.uint8), cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8)
-    )
-    pred_edge = cv2.morphologyEx(
-        pred.astype(np.uint8), cv2.MORPH_GRADIENT, np.ones((3, 3), np.uint8)
-    )
-    gt_count, pred_count = int(gt_edge.sum()), int(pred_edge.sum())
-    if gt_count == 0 and pred_count == 0:
-        return 1.0
-    if gt_count == 0 or pred_count == 0:
-        return 0.0
-    kernel = cv2.getStructuringElement(
-        cv2.MORPH_RECT, (2 * tolerance + 1, 2 * tolerance + 1)
-    )
-    gt_near = cv2.dilate(gt_edge, kernel)
-    pred_near = cv2.dilate(pred_edge, kernel)
-    precision = float((pred_edge & gt_near).sum()) / pred_count
-    recall = float((gt_edge & pred_near).sum()) / gt_count
-    return 2.0 * precision * recall / max(precision + recall, 1e-12)
 
 
 @torch.inference_mode()
@@ -129,7 +107,7 @@ def main():
             confusion[0, 1] += np.count_nonzero(~gt & pred)
             confusion[1, 0] += np.count_nonzero(gt & ~pred)
             confusion[1, 1] += np.count_nonzero(gt & pred)
-            boundary_scores.append(boundary_f1(gt, pred))
+            boundary_scores.append(boundary_f1_score(pred, gt, tolerance=2))
             if len(examples) < args.examples:
                 rgb = (
                     images[idx].permute(1, 2, 0).numpy() * 255.0
