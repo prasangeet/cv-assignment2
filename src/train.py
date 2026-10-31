@@ -135,8 +135,9 @@ def run_epoch(
     total_epochs: int = 0,
     log_interval: int = 25,
     accumulation_steps: int = 1,
+    return_metrics: bool = False,
 ):
-    """Run one training or validation epoch; retained for the existing tests."""
+    """Run one epoch. Returns loss by default; optionally returns (loss, metrics).""
     training = optimizer is not None
     model.train(training)
     total_loss = 0.0
@@ -204,7 +205,8 @@ def run_epoch(
     if not total_samples:
         raise RuntimeError("DataLoader produced no samples.")
     result = _metrics(tp, fp, fn, tn)
-    return total_loss / total_samples, result
+    epoch_loss = total_loss / total_samples
+    return (epoch_loss, result) if return_metrics else epoch_loss
 
 
 def save_history(history: list[dict], output_dir: Path) -> None:
@@ -297,11 +299,8 @@ def main():
     optimizer = torch.optim.AdamW(
         model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay
     )
-    steps_per_epoch = (
-        len(train_loader) + 0
-    )
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=args.epochs * max(steps_per_epoch, 1), eta_min=1e-6
+        optimizer, T_max=args.epochs, eta_min=1e-6
     )
     scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
@@ -346,12 +345,12 @@ def main():
             model, train_loader, criterion, device,
             optimizer=optimizer, scaler=scaler,
             use_amp=use_amp, channels_last=device.type == "cuda",
-            epoch=epoch, total_epochs=args.epochs,
+            epoch=epoch, total_epochs=args.epochs, return_metrics=True,
         )
         val_loss, val_metrics = run_epoch(
             model, val_loader, criterion, device,
             use_amp=use_amp, channels_last=device.type == "cuda",
-            epoch=epoch, total_epochs=args.epochs,
+            epoch=epoch, total_epochs=args.epochs, return_metrics=True,
         )
         duration = time.perf_counter() - started
         scheduler_lr_before = optimizer.param_groups[0]["lr"]
