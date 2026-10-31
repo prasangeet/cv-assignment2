@@ -1,4 +1,4 @@
-"""Final DUTS-TE evaluation for the SwiftMask-inspired model."""
+"""Final CPU benchmark of the SwiftMask-inspired model on DUTS-TE."""
 from __future__ import annotations
 
 import argparse
@@ -13,159 +13,239 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
 from models.segmentation_cnn import SegmentationCNN
 from src.dataset import DUTSDataset
+from src.metrics import boundary_f1, miou_from_confusion
+
+IMAGE_SIZE = 256
+MAX_CPU_TIME_MS = 50.0
+MAX_MODEL_SIZE_BYTES = 4 * 1024 * 1024
+BOUNDARY_TOLERANCE = 2
 
 
-def binary_metrics(confusion: np.ndarray) -> dict:
-    tn, fp = confusion[0]
-    fn, tp = confusion[1]
-    fg_iou = tp / max(tp + fp + fn, 1)
-    bg_iou = tn / max(tn + fp + fn, 1)
-    return {
-        "foreground_iou": float(fg_iou),
-        "background_iou": float(bg_iou),
-        "miou": float((fg_iou + bg_iou) / 2.0),
-    }
+def calculate_ces(miou: float, boundary: float, cpu_ms: float, size_bytes: int):
+    """Assignment CES: quality weighted by CPU latency and model footprint."""
+    quality = 0.70 * miou + 0.30 * boundary
+    if cpu_ms > MAX_CPU_TIME_MS:
+        return quality, 0.0
+    time_penalty = 0.20 * cpu_ms / MAX_CPU_TIME_MS
+    size_penalty = 0.10 * min(1.0, size_bytes / MAX_MODEL_SIZE_BYTES)
+    return quality, quality * (1.0 - time_penalty - size_penalty)
 
 
-def boundary_f1(gt: np.ndarray, pred: np.ndarray, tolerance: int = 2) -> float:
-    gt_u8 = gt.astype(np.uint8)
-    pred_u8 = pred.astype(np.uint8)
-    kernel = np.ones((3, 3), dtype=np.uint8)
-    gt_edge = cv2.morphologyEx(gt_u8, cv2.MORPH_GRADIENT, kernel)
-    pred_edge = cv2.morphologyEx(pred_u8, cv2.MORPH_GRADIENT, kernel)
-    if gt_edge.sum() == 0 and pred_edge.sum() == 0:
-        return 1.0
-    if gt_edge.sum() == 0 or pred_edge.sum() == 0:
-        return 0.0
-    match_kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE, (2 * tolerance + 1, 2 * tolerance + 1)
+@torch.inference_mode()
+def predict_one(
+    image_bgr: np.ndarray,
+    model: SegmentationCNN,
+    model_size: int,
+    threshold: float,
+) -> np.ndarray:
+    """Full CPU inference path: BGR -> resize/normalize -> model -> binary mask."""
+    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    image_rgb = cv2.resize(
+        image_rgb,
+        (model_size, model_size),
+        interpolation=cv2.INTER_AREA,
     )
-    gt_dilated = cv2.dilate(gt_edge, match_kernel)
-    pred_dilated = cv2.dilate(pred_edge, match_kernel)
-    precision = float((pred_edge & gt_dilated).sum()) / max(int(pred_edge.sum()), 1)
-    recall = float((gt_edge & pred_dilated).sum()) / max(int(gt_edge.sum()), 1)
-    return 2.0 * precision * recall / max(precision + recall, 1e-12)
+    image_rgb = image_rgb.astype(np.float32) / 255.0
+    chw = np.ascontiguousarray(image_rgb.transpose(2, 0, 1))
+    tensor = torch.from_numpy(chw).unsqueeze(0)
+
+    logits = model(tensor)
+    prediction = torch.sigmoid(logits) >= threshold
+    prediction = F.interpolate(
+        prediction.float(),
+        size=(IMAGE_SIZE, IMAGE_SIZE),
+        mode="nearest",
+    )
+    return prediction[0, 0].cpu().numpy().astype(np.uint8)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Evaluate segmentation quality and CES on DUTS-TE."
+    )
+    parser.add_argument("--data", type=Path, default=Path("data"))
+    parser.add_argument("--split", choices=["DUTS-TE"], default="DUTS-TE")
+    parser.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=Path("experiments/swiftmask_v2/model_best.pt"),
+    )
+    parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--model-size", type=int, default=128)
+    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--examples", type=int, default=8)
+    args = parser.parse_args()
+    if args.model_size < 32:
+        parser.error("--model-size must be at least 32")
+    if not 0.0 <= args.threshold <= 1.0:
+        parser.error("--threshold must be between 0 and 1")
+    if args.examples < 0:
+        parser.error("--examples cannot be negative")
+    return args
 
 
 @torch.inference_mode()
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data", type=Path, default=Path("data"))
-    parser.add_argument("--split", default="DUTS-TE")
-    parser.add_argument("--checkpoint", type=Path, default=Path("experiments/swiftmask_v2/model_best.pt"))
-    parser.add_argument("--output-dir", type=Path, default=None)
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--workers", type=int, default=2)
-    parser.add_argument("--examples", type=int, default=8)
-    args = parser.parse_args()
-
+    args = parse_args()
     if not args.checkpoint.is_file():
         raise FileNotFoundError(f"Checkpoint not found: {args.checkpoint}")
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    torch.set_num_threads(1)
+    # CES is explicitly a CPU benchmark. Keep timing conditions reproducible.
     cv2.setNumThreads(1)
+    torch.set_num_threads(1)
+    device = torch.device("cpu")
 
-    # Dataset stays at 256 for scoring; model sees 128, exactly as configured
-    # in SwiftMask's reference evaluation protocol.
-    dataset = DUTSDataset(args.data, split=args.split, image_size=256, augment=False)
-    loader = DataLoader(
-        dataset, batch_size=args.batch_size, shuffle=False,
-        num_workers=args.workers, pin_memory=(device.type == "cuda"),
-        persistent_workers=(args.workers > 0)
+    dataset = DUTSDataset(
+        args.data,
+        split=args.split,
+        image_size=IMAGE_SIZE,
+        augment=False,
     )
+    if args.split == "DUTS-TE" and len(dataset) != 5019:
+        raise RuntimeError(
+            f"Expected 5019 DUTS-TE image-mask pairs, found {len(dataset)}."
+        )
 
     model = SegmentationCNN().to(device)
     state = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
     model.load_state_dict(state)
     model.eval()
 
+    # Warmup is excluded from benchmark timing.
+    first_image, _ = dataset[0]
+    warmup_rgb = np.rint(
+        first_image.permute(1, 2, 0).numpy() * 255.0
+    ).clip(0, 255).astype(np.uint8)
+    warmup_bgr = cv2.cvtColor(warmup_rgb, cv2.COLOR_RGB2BGR)
+    _ = predict_one(warmup_bgr, model, args.model_size, args.threshold)
+
     confusion = np.zeros((2, 2), dtype=np.int64)
     boundary_scores: list[float] = []
     examples: list[tuple[np.ndarray, np.ndarray, np.ndarray]] = []
-    total_time = 0.0
-    total_images = 0
+    total_cpu_seconds = 0.0
 
-    for images, masks in loader:
-        images_device = images.to(device, non_blocking=True)
-        model_images = F.interpolate(
-            images_device, size=(128, 128), mode="bilinear", align_corners=False
+    print("=" * 68)
+    print("SWIFTMASK — DUTS-TE CPU EVALUATION")
+    print("=" * 68)
+    print(f"Images: {len(dataset)} | Device: CPU | Threads: 1")
+    print(f"Model input: {args.model_size}x{args.model_size}")
+    print(f"Checkpoint: {args.checkpoint}")
+
+    for index in range(len(dataset)):
+        image_tensor, mask_tensor = dataset[index]
+
+        # The dataset returns RGB floats at 256x256. Reconstruct the processed
+        # uint8 image so that the measured path includes BGR->RGB conversion.
+        image_rgb = np.rint(
+            image_tensor.permute(1, 2, 0).numpy() * 255.0
+        ).clip(0, 255).astype(np.uint8)
+        image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+        target = mask_tensor[0].numpy() >= 0.5
+
+        started = time.process_time()
+        prediction = predict_one(
+            image_bgr, model, args.model_size, args.threshold
+        )
+        total_cpu_seconds += time.process_time() - started
+
+        pred = prediction.astype(bool)
+        confusion[0, 0] += np.count_nonzero(~target & ~pred)
+        confusion[0, 1] += np.count_nonzero(~target & pred)
+        confusion[1, 0] += np.count_nonzero(target & ~pred)
+        confusion[1, 1] += np.count_nonzero(target & pred)
+        boundary_scores.append(
+            boundary_f1(pred, target, tolerance=BOUNDARY_TOLERANCE)
         )
 
-        # Exclude host-side data loading from model inference timing.
-        if device.type == "cuda":
-            torch.cuda.synchronize()
-        started = time.perf_counter()
-        logits = model(model_images)
-        if device.type == "cuda":
-            torch.cuda.synchronize()
-        total_time += time.perf_counter() - started
+        if len(examples) < args.examples:
+            examples.append((image_rgb, target.astype(np.uint8), prediction))
 
-        low_res_mask = torch.sigmoid(logits) >= 0.5
-        pred = F.interpolate(
-            low_res_mask.float(), size=(256, 256), mode="nearest"
-        )[:, 0].cpu().numpy().astype(bool)
-        target = (masks[:, 0].numpy() >= 0.5)
+        completed = index + 1
+        if completed % 100 == 0 or completed == len(dataset):
+            print(f"Evaluated {completed}/{len(dataset)}")
 
-        for i in range(pred.shape[0]):
-            p = pred[i]
-            g = target[i]
-            confusion[0, 0] += np.count_nonzero(~g & ~p)
-            confusion[0, 1] += np.count_nonzero(~g & p)
-            confusion[1, 0] += np.count_nonzero(g & ~p)
-            confusion[1, 1] += np.count_nonzero(g & p)
-            boundary_scores.append(boundary_f1(g, p))
-            if len(examples) < args.examples:
-                examples.append((
-                    (images[i].permute(1, 2, 0).numpy() * 255).clip(0, 255).astype(np.uint8),
-                    g.astype(np.uint8),
-                    p.astype(np.uint8),
-                ))
-            total_images += 1
+    iou = miou_from_confusion(confusion)
+    # Calculate the two class IoUs explicitly for reporting.
+    tn, fp = confusion[0]
+    fn, tp = confusion[1]
+    foreground_iou = tp / max(tp + fp + fn, 1)
+    background_iou = tn / max(tn + fp + fn, 1)
+    mean_boundary = float(np.mean(boundary_scores))
+    average_cpu_ms = total_cpu_seconds / max(len(dataset), 1) * 1000.0
+    model_size_bytes = args.checkpoint.stat().st_size
+    quality, ces = calculate_ces(
+        iou, mean_boundary, average_cpu_ms, model_size_bytes
+    )
 
-    metrics = binary_metrics(confusion)
-    metrics["boundary_f1"] = float(np.mean(boundary_scores)) if boundary_scores else 0.0
-    metrics["num_images"] = total_images
-    metrics["confusion_matrix"] = confusion.tolist()
-    metrics["model_inference_ms_per_image"] = (total_time / max(total_images, 1)) * 1000.0
-    metrics["checkpoint_bytes"] = args.checkpoint.stat().st_size
-    metrics["checkpoint"] = str(args.checkpoint)
-    metrics["split"] = args.split
-    metrics["input_resolution"] = 128
+    results = {
+        "model": args.checkpoint.name,
+        "split": args.split,
+        "num_images": len(dataset),
+        "device": "CPU",
+        "cpu_threads": 1,
+        "model_input_resolution": args.model_size,
+        "output_resolution": IMAGE_SIZE,
+        "threshold": args.threshold,
+        "total_cpu_seconds": total_cpu_seconds,
+        "average_cpu_ms": average_cpu_ms,
+        "model_size_bytes": model_size_bytes,
+        "foreground_iou": float(foreground_iou),
+        "background_iou": float(background_iou),
+        "miou": float(iou),
+        "boundary_f1": mean_boundary,
+        "quality_score": float(quality),
+        "ces_score": float(ces),
+        "confusion_matrix": confusion.tolist(),
+        "checkpoint": str(args.checkpoint),
+    }
 
     output_dir = args.output_dir or args.checkpoint.parent
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "results.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    (output_dir / "results.json").write_text(
+        json.dumps(results, indent=2), encoding="utf-8"
+    )
 
     if examples:
-        cols = 4
-        rows = len(examples)
-        fig, axes = plt.subplots(rows, cols, figsize=(12, 3.2 * rows), squeeze=False)
-        for idx, (image, gt, pred) in enumerate(examples):
-            axes[idx, 0].imshow(image)
-            axes[idx, 0].set_title("Input")
-            axes[idx, 1].imshow(gt, cmap="gray", vmin=0, vmax=1)
-            axes[idx, 1].set_title("Ground truth")
-            axes[idx, 2].imshow(pred, cmap="gray", vmin=0, vmax=1)
-            axes[idx, 2].set_title("Prediction")
-            overlay = image.copy()
-            overlay[pred.astype(bool)] = (
-                0.55 * overlay[pred.astype(bool)] + 0.45 * np.array([255, 0, 0])
+        fig, axes = plt.subplots(
+            len(examples), 4,
+            figsize=(12, 3.0 * len(examples)),
+            squeeze=False,
+        )
+        for row, (rgb, gt, pred) in enumerate(examples):
+            axes[row, 0].imshow(rgb)
+            axes[row, 0].set_title("Input")
+            axes[row, 1].imshow(gt, cmap="gray", vmin=0, vmax=1)
+            axes[row, 1].set_title("Ground truth")
+            axes[row, 2].imshow(pred, cmap="gray", vmin=0, vmax=1)
+            axes[row, 2].set_title("Prediction")
+            overlay = rgb.copy()
+            selected = pred.astype(bool)
+            overlay[selected] = (
+                0.55 * overlay[selected] + 0.45 * np.array([255, 0, 0])
             ).astype(np.uint8)
-            axes[idx, 3].imshow(overlay)
-            axes[idx, 3].set_title("Prediction overlay")
-            for ax in axes[idx]:
-                ax.axis("off")
+            axes[row, 3].imshow(overlay)
+            axes[row, 3].set_title("Overlay")
+            for axis in axes[row]:
+                axis.axis("off")
         fig.tight_layout()
         fig.savefig(output_dir / "segmentation_examples.png", dpi=150)
         plt.close(fig)
 
-    print(json.dumps(metrics, indent=2))
-    print(f"Saved evaluation to: {output_dir}")
+    print("\n" + "=" * 68)
+    print("FINAL RESULTS")
+    print("=" * 68)
+    print(f"Foreground IoU: {foreground_iou:.6f}")
+    print(f"Background IoU: {background_iou:.6f}")
+    print(f"mIoU:           {iou:.6f}")
+    print(f"Boundary F1:    {mean_boundary:.6f}")
+    print(f"CPU ms/image:   {average_cpu_ms:.4f}")
+    print(f"Model size:     {model_size_bytes} bytes")
+    print(f"Quality Q:      {quality:.6f}")
+    print(f"CES:            {ces:.6f}")
+    print(f"Saved results and visualizations to: {output_dir}")
 
 
 if __name__ == "__main__":
