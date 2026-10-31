@@ -42,7 +42,7 @@ class RSUBlock(nn.Module):
         self.enc2 = DepthwiseSeparableConv(mid_channels, mid_channels)
         self.center = DepthwiseSeparableConv(mid_channels, mid_channels, dilation=2)
         self.dec2 = DepthwiseSeparableConv(mid_channels * 2, mid_channels)
-        self.dec1 = DepthwiseSeparableConv(mid_channels + out_channels, out_channels)
+        self.dec1 = DepthwiseSeparableConv(mid_channels * 2, out_channels)
         self.pool = nn.MaxPool2d(2, 2, ceil_mode=True)
 
     @staticmethod
@@ -57,7 +57,7 @@ class RSUBlock(nn.Module):
         e2 = self.enc2(self.pool(e1))
         center = self.center(self.pool(e2))
         d2 = self.dec2(torch.cat((self.upsample(center, e2), e2), dim=1))
-        d1 = self.dec1(torch.cat((self.upsample(d2, e1), residual), dim=1))
+        d1 = self.dec1(torch.cat((self.upsample(d2, e1), e1), dim=1))
         return d1 + residual
 
 
