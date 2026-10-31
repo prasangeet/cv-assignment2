@@ -1,0 +1,26 @@
+[project]
+name = "cv-assignment2"
+version = "0.1.0"
+description = "Cost-efficient salient object segmentation using a lightweight CNN"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "torch",
+    "numpy",
+    "opencv-python",
+    "matplotlib",
+    "tqdm>=4.70.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-ra"
+pythonpath = ["."]
