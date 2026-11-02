@@ -1,0 +1,151 @@
+{
+  "evaluation": "captured_photos",
+  "checkpoint": "final/unet_128_multiscale_v1/model_best.pt",
+  "num_images": 7,
+  "sample_ids": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7"
+  ],
+  "resolution": [
+    256,
+    256
+  ],
+  "threshold": 0.5,
+  "device": "CPU",
+  "cpu_threads": 1,
+  "foreground_iou": 0.7593320648487722,
+  "background_iou": 0.8793179731824406,
+  "aggregate_miou": 0.8193250190156065,
+  "mean_per_image_miou": 0.8262777414149322,
+  "mean_boundary_f1": 0.5629101885330663,
+  "quality_score": 0.7424005698708445,
+  "confusion_matrix": [
+    [
+      292149,
+      28857
+    ],
+    [
+      11239,
+      126507
+    ]
+  ],
+  "latency": {
+    "warmup_runs": 1,
+    "repetitions_per_image": 20,
+    "total_timed_predictions": 140,
+    "average_cpu_ms_per_prediction": 17.06006887857142,
+    "median_cpu_ms_per_prediction": 16.614401,
+    "std_cpu_ms_per_prediction": 1.8335654452557657,
+    "min_cpu_ms_per_prediction": 14.626549999999572,
+    "max_cpu_ms_per_prediction": 21.59932600000003
+  },
+  "model_size_bytes": 767807,
+  "model_size_mib": 0.7322378158569336,
+  "ces_score": null,
+  "ces_note": "Custom captured-photo evaluation. Official CES must use the full DUTS-TE benchmark timing protocol.",
+  "per_image": [
+    {
+      "id": "1",
+      "image": "captured/images_256/1.png",
+      "ground_truth_mask": "captured/masks_256_binary/1.png",
+      "prediction": "captured/evaluation/predictions/1.png",
+      "foreground_iou": 0.8669122246160261,
+      "background_iou": 0.9639101428517584,
+      "miou": 0.9154111837338923,
+      "boundary_f1": 0.7197006249203893,
+      "foreground_pixels_percent": 19.84710693359375,
+      "cpu_ms_mean": 16.634412749999996,
+      "cpu_ms_std": 0.43142849151319684,
+      "latency_repetitions": 20
+    },
+    {
+      "id": "2",
+      "image": "captured/images_256/2.png",
+      "ground_truth_mask": "captured/masks_256_binary/2.png",
+      "prediction": "captured/evaluation/predictions/2.png",
+      "foreground_iou": 0.468531933275736,
+      "background_iou": 0.6890504704875963,
+      "miou": 0.5787912018816661,
+      "boundary_f1": 0.2975890904163683,
+      "foreground_pixels_percent": 25.76141357421875,
+      "cpu_ms_mean": 16.523739799999994,
+      "cpu_ms_std": 0.5882859048551542,
+      "latency_repetitions": 20
+    },
+    {
+      "id": "3",
+      "image": "captured/images_256/3.png",
+      "ground_truth_mask": "captured/masks_256_binary/3.png",
+      "prediction": "captured/evaluation/predictions/3.png",
+      "foreground_iou": 0.7470965075428807,
+      "background_iou": 0.8710703750526759,
+      "miou": 0.8090834412977783,
+      "boundary_f1": 0.44531994908305944,
+      "foreground_pixels_percent": 34.930419921875,
+      "cpu_ms_mean": 17.432425499999972,
+      "cpu_ms_std": 1.5026920043280592,
+      "latency_repetitions": 20
+    },
+    {
+      "id": "4",
+      "image": "captured/images_256/4.png",
+      "ground_truth_mask": "captured/masks_256_binary/4.png",
+      "prediction": "captured/evaluation/predictions/4.png",
+      "foreground_iou": 0.9473249328651105,
+      "background_iou": 0.9292845257903494,
+      "miou": 0.93830472932773,
+      "boundary_f1": 0.6513594996178679,
+      "foreground_pixels_percent": 58.25958251953125,
+      "cpu_ms_mean": 18.71009819999996,
+      "cpu_ms_std": 1.978459680467222,
+      "latency_repetitions": 20
+    },
+    {
+      "id": "5",
+      "image": "captured/images_256/5.png",
+      "ground_truth_mask": "captured/masks_256_binary/5.png",
+      "prediction": "captured/evaluation/predictions/5.png",
+      "foreground_iou": 0.9223876211928312,
+      "background_iou": 0.9660592303903723,
+      "miou": 0.9442234257916018,
+      "boundary_f1": 0.8666546935997657,
+      "foreground_pixels_percent": 29.2633056640625,
+      "cpu_ms_mean": 18.927338900000002,
+      "cpu_ms_std": 1.8351522980248351,
+      "latency_repetitions": 20
+    },
+    {
+      "id": "6",
+      "image": "captured/images_256/6.png",
+      "ground_truth_mask": "captured/masks_256_binary/6.png",
+      "prediction": "captured/evaluation/predictions/6.png",
+      "foreground_iou": 0.9242171576801927,
+      "background_iou": 0.9757375622874318,
+      "miou": 0.9499773599838123,
+      "boundary_f1": 0.7946926587413375,
+      "foreground_pixels_percent": 24.224853515625,
+      "cpu_ms_mean": 16.005495700000004,
+      "cpu_ms_std": 1.3441684976211532,
+      "latency_repetitions": 20
+    },
+    {
+      "id": "7",
+      "image": "captured/images_256/7.png",
+      "ground_truth_mask": "captured/masks_256_binary/7.png",
+      "prediction": "captured/evaluation/predictions/7.png",
+      "foreground_iou": 0.5033652143110167,
+      "background_iou": 0.7929404814650717,
+      "miou": 0.6481528478880442,
+      "boundary_f1": 0.1650548033526757,
+      "foreground_pixels_percent": 17.89703369140625,
+      "cpu_ms_mean": 15.186971300000039,
+      "cpu_ms_std": 0.46601638910768384,
+      "latency_repetitions": 20
+    }
+  ]
+}
