@@ -186,17 +186,17 @@ The final experiment configuration is stored in **final/unet_128_multiscale_v1/c
 
 Each supervised output uses a 50:50 combination of binary cross-entropy with logits and soft Dice loss:
 
-$
+$$
 L_{\mathrm{base}} = 0.5 L_{\mathrm{BCE}} + 0.5 L_{\mathrm{Dice}}
-$
+$$
 
 The deep-supervision objective combines the main and auxiliary decoder losses:
 
-$
+$$
 L = 0.60 L_{\mathrm{main}}
   + 0.15 L_{\mathrm{quarter}}
   + 0.25 L_{\mathrm{half}}
-$
+$$
 
 The weights sum to one. The main output receives the largest contribution, while the auxiliary heads encourage intermediate decoder representations to remain useful for segmentation.
 
@@ -210,10 +210,10 @@ The learning rate is linearly warmed up for the first three epochs and then deca
 
 The best checkpoint is selected using validation quality:
 
-$
+$$
 Q_{\mathrm{val}} = 0.70\,mIoU_{\mathrm{val}}
                  + 0.30\,BF1_{\mathrm{val}}
-$
+$$
 
 The best recorded checkpoint occurred at epoch 56 of 60.
 
@@ -268,29 +268,29 @@ The official evaluator measures one timed prediction per DUTS-TE image and avera
 
 The evaluator accumulates one dataset-level confusion matrix:
 
-$
+$$
 C =
 \begin{bmatrix}
 TN & FP \\
 FN & TP
 \end{bmatrix}
-$
+$$
 
 Foreground and background IoU are:
 
-$
+$$
 IoU_{\mathrm{fg}} = \frac{TP}{TP+FP+FN}
-$
+$$
 
-$
+$$
 IoU_{\mathrm{bg}} = \frac{TN}{TN+FP+FN}
-$
+$$
 
 The reported dataset-level mean IoU is:
 
-$
+$$
 mIoU = \frac{IoU_{\mathrm{fg}}+IoU_{\mathrm{bg}}}{2}
-$
+$$
 
 This is computed from the aggregate confusion matrix, not by averaging the per-image IoU values.
 
@@ -306,19 +306,19 @@ Boundary F1 complements mIoU: region overlap can remain high even when object co
 
 The quality component is:
 
-$
+$$
 Q = 0.70\,mIoU + 0.30\,BF1
-$
+$$
 
 The assignment budgets are 50 ms per image and 4 MiB for the saved model file. With TCPU in milliseconds and Sdisk in bytes:
 
-$
+$$
 CES =
 Q\left(
 1 - 0.20\frac{TCPU}{50}
   - 0.10\min\left(1,\frac{Sdisk}{4,194,304}\right)
 \right)
-$
+$$
 
 CES is set to zero if TCPU exceeds 50 ms. The size term uses the exact serialized checkpoint file size, without compression.
 
