@@ -1,0 +1,318 @@
+% ============================================================
+%  CSL7360 Computer Vision - Assignment 2 report
+%  Cost-Efficient Salient Object Segmentation
+%  Compile: pdflatex report.tex  (run twice for references)
+% ============================================================
+\documentclass[10pt,a4paper,twocolumn]{article}
+
+\usepackage[a4paper,top=1.9cm,bottom=1.8cm,left=1.6cm,right=1.6cm,columnsep=0.7cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{mathpazo}
+\usepackage[scaled=0.92]{helvet}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs,array,multirow}
+\usepackage[table]{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,backgrounds}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{balance}
+\usepackage[colorlinks=true,linkcolor=navy,urlcolor=teal,citecolor=navy]{hyperref}
+
+% ---------- palette ----------
+\definecolor{navy}{HTML}{1F3A5F}
+\definecolor{teal}{HTML}{2A9D8F}
+\definecolor{amber}{HTML}{E9A23B}
+\definecolor{coral}{HTML}{E76F51}
+\definecolor{paper}{HTML}{F4F7FA}
+\definecolor{rule}{HTML}{C9D3DE}
+
+% ---------- fill this in before submission ----------
+\newcommand{\cpumodel}{\textbf{\textcolor{coral}{[CPU model: 11th Gen Intel(R) Core(TM) i5-11400H @ 2.70GHz0]}}}
+
+% ---------- typography ----------
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.42em}
+\linespread{1.03}
+\setlist{nosep,leftmargin=1.2em,itemsep=1pt}
+\captionsetup{font={small},labelfont={bf,color=navy},labelsep=period,skip=4pt}
+
+\titleformat{\section}{\sffamily\large\bfseries\color{navy}}{\thesection}{0.6em}{}[{\color{rule}\titlerule[0.6pt]}]
+\titleformat{\subsection}{\sffamily\normalsize\bfseries\color{teal}}{\thesubsection}{0.5em}{}
+\titlespacing*{\section}{0pt}{1.1em}{0.5em}
+\titlespacing*{\subsection}{0pt}{0.8em}{0.3em}
+
+\setlength{\headheight}{14pt}
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{rule}\leaders\hrule height \headrulewidth\hfill}}
+\fancyhead[L]{\sffamily\footnotesize\color{navy}CSL7360 -- Computer Vision \,|\, Assignment 2}
+\fancyhead[R]{\sffamily\footnotesize\color{navy}Prasangeet\ Dongre \,(B23CH1033)}
+\fancyfoot[C]{\sffamily\footnotesize\thepage}
+
+\newcommand{\Tcpu}{T_{\mathrm{CPU}}}
+\newcommand{\Sdisk}{S_{\mathrm{disk}}}
+\newcommand{\key}[2]{\begin{tabular}{@{}c@{}}{\sffamily\bfseries\large\color{navy}#1}\\[-1pt]{\sffamily\scriptsize\color{gray}#2}\end{tabular}}
+
+\begin{document}
+
+% ============================================================
+%  Title block (spans both columns)
+% ============================================================
+\twocolumn[{%
+\begin{center}
+{\sffamily\bfseries\fontsize{19}{22}\selectfont\color{navy} Cost-Efficient Salient Object Segmentation\par}
+\vspace{0.3em}
+{\sffamily\large\color{teal} A 176K-parameter residual U-Net under a 50\,ms single-core CPU budget\par}
+\vspace{0.6em}
+{\sffamily\bfseries Prasangeet Dongre} \quad {\sffamily\small(Roll No.\ B23CH1033)}\\[1pt]
+{\sffamily\small B.Tech Chemical Engineering, IIT Jodhpur \,\textbullet\, CSL7360 Computer Vision, Assignment 2 (Track B)}
+\end{center}
+\vspace{0.2em}
+\noindent\colorbox{paper}{%
+\parbox{\dimexpr\textwidth-2\fboxsep}{%
+\vspace{3pt}
+\centering
+\key{0.749}{mIoU (DUTS-TE)}\hspace{1.6em}%
+\key{0.519}{Boundary F1}\hspace{1.6em}%
+\key{0.680}{quality $Q$}\hspace{1.6em}%
+\key{17.3 ms}{$\Tcpu$ per image}\hspace{1.6em}%
+\key{0.73 MiB}{$\Sdisk$}\hspace{1.6em}%
+\key{0.6205}{CES}
+\vspace{3pt}}}
+\vspace{0.6em}
+
+\noindent{\sffamily\bfseries\color{navy}Abstract.}\;
+We build a binary salient-object segmenter that has to label every pixel of a $256{\times}256$ photograph within 50\,ms of single-thread CPU time and a 4\,MiB parameter file. Our model is a three-level residual U-Net with a dilated depthwise multi-scale context block at the bottleneck and deep supervision, trained from scratch on DUTS-TR at $128{\times}128$ working resolution. On the full DUTS-TE benchmark (5{,}019 images) it reaches mIoU\,=\,0.7491, Boundary F1\,=\,0.5192 and $Q$\,=\,0.6801 at $\Tcpu$\,=\,17.32\,ms with a 767{,}807-byte checkpoint, giving CES\,=\,0.6205. On seven hand-annotated photographs from our own surroundings it reaches mIoU\,=\,0.8193. The model is cheap enough that the remaining weakness is not speed but contour accuracy and clutter handling, which we analyse through three failure cases.
+\vspace{0.8em}
+}]
+
+% ============================================================
+\section{Introduction}
+The assignment asks for a pipeline that separates the main object from the background, scored by
+\begin{equation}
+Q = 0.70\,\mathrm{mIoU} + 0.30\,\mathrm{BF1},
+\end{equation}
+\begin{equation}
+\mathrm{CES} = Q\Bigl(1-0.20\tfrac{\Tcpu}{50\,\mathrm{ms}}-0.10\min\bigl(1,\tfrac{\Sdisk}{4\,\mathrm{MiB}}\bigr)\Bigr),
+\end{equation}
+with CES set to zero if $\Tcpu>50$\,ms. We follow \emph{Track B} (a small fully convolutional network written and trained from scratch). The design question is therefore twofold: how accurate can a network be, and how little of the time and storage budget does it need to spend to get there? Both penalty terms are linear, so each millisecond costs $0.4\%$ of $Q$ and the whole file-size term at most $10\%$. A model that is accurate \emph{and} tiny wins over a bigger, slightly more accurate one.
+
+% ============================================================
+\section{Data and Preprocessing}
+\subsection{Splits}
+DUTS-TR (10{,}553 images) is split into a training and a validation part; DUTS-TE (5{,}019 images) is the final benchmark. The validation set is $10\%$ of DUTS-TR, drawn deterministically (seed 42) and stratified by foreground area: images are sorted by the fraction of mask pixels that are object, cut into strata, and sampled within each stratum, so that small and large objects appear in both parts in similar proportions.
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}lrl@{}}
+\toprule
+\textbf{Split} & \textbf{Images} & \textbf{Use}\\
+\midrule
+DUTS-TR (train) & 9{,}498 & gradient updates\\
+DUTS-TR (val)   & 1{,}055 & monitoring, checkpoint choice\\
+DUTS-TE         & 5{,}019 & final benchmark\\
+Own photos      & 7 & test only\\
+\bottomrule
+\end{tabular}
+\caption{Dataset splits.}
+\end{table}
+
+\textbf{Test-set hygiene.} DUTS-TE is never loaded by the training loop, never contributes gradients and is not used to pick the saved checkpoint. In full disclosure, however, DUTS-TE scores were looked at while comparing candidate designs during development, so it is not a strictly blind set. The reported figure is the single final run under the protocol below.
+
+\subsection{Preprocessing and augmentation}
+Following the assignment, every photo is resized to $256{\times}256$ with \texttt{cv2.INTER\_AREA} and every mask with \texttt{cv2.INTER\_NEAREST}; a mask pixel is object if its value is at least 128. All metrics are computed on these $256{\times}256$ masks. Inputs are RGB floats in $[0,1]$. During training only, image and mask receive the same random horizontal flip ($p{=}0.5$), vertical flip ($p{=}0.10$) and isotropic rescaling by $0.9$--$1.1$ ($p{=}0.5$, new border pixels are background); the image alone additionally gets brightness and per-channel gain jitter with clipping.
+
+% ============================================================
+\section{Method}
+\subsection{Architecture}
+The network (Fig.~\ref{fig:arch}) is a three-level residual U-Net with 175{,}971 trainable parameters. Each encoder block has two $3{\times}3$ convolutions with batch norm and ReLU plus a residual shortcut (projected with a $1{\times}1$ convolution when channel counts differ). Channel widths are kept very small, $16\!\to\!24\!\to\!40\!\to\!56$, and max pooling halves the resolution between stages.
+
+\textbf{Dilated multi-scale context.} Salient objects range from a computer mouse to a whole backpack, so the bottleneck (at $1/8$ of the working resolution) needs several receptive-field sizes. Three parallel branches, each a $1{\times}1$ projection to 16 channels followed by a \emph{depthwise} $3{\times}3$ convolution with dilation 1, 2 and 4, are concatenated, projected back to 56 channels and added to the bottleneck input. Depthwise convolutions give the wider context for a fraction of the parameters and multiply--adds of a full dilated block.
+
+\textbf{Decoder and skips.} The decoder upsamples, concatenates the matching encoder feature (U-Net style skip connections) and applies a residual block: $56{+}40\!\to\!40$, $40{+}24\!\to\!24$, $24{+}16\!\to\!16$. A final $1{\times}1$ convolution gives one logit per pixel. Two auxiliary $1{\times}1$ heads on the quarter- and half-resolution decoder stages exist \emph{only during training}; at inference only the main head runs.
+
+% ---------- architecture figure (full width) ----------
+\begin{figure*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  blk/.style={draw=navy,fill=navy!10,rounded corners=2pt,minimum width=1.35cm,align=center,font=\sffamily\scriptsize,inner sep=2pt},
+  enc/.style={blk,fill=navy!12},
+  dec/.style={blk,fill=teal!16,draw=teal!80!black},
+  ctx/.style={blk,fill=amber!25,draw=amber!80!black,minimum width=2.3cm},
+  aux/.style={blk,fill=coral!15,draw=coral,dashed,minimum width=1.0cm,minimum height=0.55cm},
+  flow/.style={-{Stealth[length=4pt]},thick,navy!70},
+  skip/.style={-{Stealth[length=4pt]},thick,dashed,teal!70!black},
+  lab/.style={font=\sffamily\scriptsize,text=black!60}]
+\node[blk,fill=white,minimum height=1.9cm] (in) at (0,0) {RGB\\$128^2$\\$\times 3$};
+\node[enc,minimum height=1.9cm] (e1) at (2.0,0) {Enc 1\\ResBlock\\\textbf{16}};
+\node[enc,minimum height=1.45cm] (e2) at (4.0,-0.2) {Enc 2\\ResBlock\\\textbf{24}};
+\node[enc,minimum height=1.05cm] (e3) at (6.0,-0.4) {Enc 3\\ResBlock\\\textbf{40}};
+\node[ctx,minimum height=0.95cm] (bn) at (8.55,-0.55) {Bottleneck \textbf{56}\\dilated DW ctx\\$d\in\{1,2,4\}$};
+\node[dec,minimum height=1.05cm] (d3) at (11.1,-0.4) {Dec 3\\ResBlock\\\textbf{40}};
+\node[dec,minimum height=1.45cm] (d2) at (13.1,-0.2) {Dec 2\\ResBlock\\\textbf{24}};
+\node[dec,minimum height=1.9cm] (d1) at (15.1,0) {Dec 1\\ResBlock\\\textbf{16}};
+\node[blk,fill=white,minimum height=1.9cm] (out) at (17.1,0) {$1{\times}1$\\conv\\mask\\$128^2$};
+\draw[flow] (in)--(e1); \draw[flow] (e1)--node[lab,above]{pool}(e2);
+\draw[flow] (e2)--node[lab,above]{pool}(e3); \draw[flow] (e3)--node[lab,above]{pool}(bn);
+\draw[flow] (bn)--node[lab,above]{up}(d3); \draw[flow] (d3)--node[lab,above]{up}(d2);
+\draw[flow] (d2)--node[lab,above]{up}(d1); \draw[flow] (d1)--(out);
+\draw[skip] (e1.north) to[out=50,in=130] node[lab,above]{skip (concat)} (d1.north);
+\draw[skip] (e2.north) to[out=50,in=130] (d2.north);
+\draw[skip] (e3.north) to[out=50,in=130] (d3.north);
+\node[aux,above=0.55cm of d3] (a3) {aux $\tfrac14$};
+\node[aux,above=0.62cm of d2] (a2) {aux $\tfrac12$};
+\draw[dashed,coral,-{Stealth[length=3pt]}] (d3.north)--(a3.south);
+\draw[dashed,coral,-{Stealth[length=3pt]}] (d2.north)--(a2.south);
+\node[lab,anchor=north west] at (14.0,-1.55) {\textcolor{coral}{aux heads: training only}};
+\end{tikzpicture}}
+\caption{Architecture of the final network (175{,}971 parameters). Numbers in bold are channel counts. The dashed teal arcs are U-Net skip connections that concatenate encoder features into the decoder; the coral heads provide deep supervision during training and are removed at inference.}
+\label{fig:arch}
+\end{figure*}
+
+\subsection{Loss and training}
+Every supervised output uses an equal mix of binary cross-entropy (with logits) and soft Dice loss,
+\begin{equation}
+\mathcal{L}_{\text{base}} = 0.5\,\mathcal{L}_{\text{BCE}} + 0.5\,\mathcal{L}_{\text{Dice}},
+\end{equation}
+and deep supervision weights the main and auxiliary outputs as
+\begin{equation}
+\mathcal{L} = 0.60\,\mathcal{L}_{\text{main}} + 0.15\,\mathcal{L}_{1/4} + 0.25\,\mathcal{L}_{1/2}.
+\end{equation}
+BCE gives stable per-pixel gradients, while Dice counteracts the strong background majority that makes plain cross-entropy under-segment small objects.
+
+We train from scratch (no pretrained weights) with AdamW for 60 epochs on a GPU, batch size 8 with 2 accumulation steps (effective 16), peak learning rate $7{\times}10^{-4}$, 3 epochs of linear warm-up followed by cosine decay to $10^{-6}$, weight decay $10^{-5}$ (not applied to biases and normalisation parameters), gradient clipping at 1.0 and mixed precision. The checkpoint is chosen by validation quality $Q_{\text{val}}=0.70\,\mathrm{mIoU}+0.30\,\mathrm{BF1}$, which peaked at epoch 56 (Fig.~\ref{fig:curves}).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figs/curves.pdf}
+\caption{Training history. Left: training and validation loss. Right: validation mIoU, Boundary F1 and $Q$ (dashed line: selected epoch 56).}
+\label{fig:curves}
+\end{figure}
+
+% ============================================================
+\section{Keeping the Pipeline Fast}
+The timed region starts with a $256{\times}256$ BGR photograph in memory and ends with a $256{\times}256$ array of 0s and 1s. Inside it we:
+\begin{enumerate}
+\item downscale to $128{\times}128$ with \texttt{INTER\_AREA},
+\item convert BGR$\to$RGB, scale to $[0,1]$ and build the tensor,
+\item run the network,
+\item bilinearly upsample the logits to $256{\times}256$,
+\item apply a sigmoid, threshold at 0.5 and materialise the NumPy mask.
+\end{enumerate}
+File I/O, resizing the original photograph to $256{\times}256$, loading the checkpoint and metric computation lie outside the timer. The main levers on cost were:
+\begin{itemize}
+\item \textbf{Half working resolution.} Running the CNN at $128{\times}128$ rather than $256{\times}256$ cuts the number of pixels processed by 4$\times$; the logits are upsampled afterwards.
+\item \textbf{Very narrow channels} (16--56) and a context block built from depthwise convolutions.
+\item \textbf{No test-time extras:} no ensembling, no flip averaging, no auxiliary heads at inference.
+\item \textbf{Strict single-thread setup.} The four thread environment variables are set to \texttt{"1"} before importing NumPy, OpenCV or PyTorch, followed by \texttt{cv2.setNumThreads(1)} and \texttt{torch.set\_num\_threads(1)}; the model is warmed up once before timing.
+\end{itemize}
+$\Tcpu$ is the total \texttt{time.process\_time()} over all 5{,}019 DUTS-TE images divided by 5{,}019. The storage side is equally simple: the saved file is a plain, uncompressed PyTorch state dict of 767{,}807 bytes (0.7322\,MiB, 18.3\% of the 4\,MiB budget), all learned values live in it, and none are hard-coded.
+
+\textbf{Evaluation code.} Metrics are written from scratch in NumPy. mIoU accumulates one $2{\times}2$ confusion matrix over the set. For Boundary F1, boundary pixels are found with four shifted copies of the padded mask (pixels outside the image count as background), and the $5{\times}5$ tolerance check is a logical OR over 25 shifted slices of the boundary map, so no per-pixel Python loops or prohibited morphology calls are needed.
+
+% ============================================================
+\section{Results}
+\begin{figure*}[!t]
+\centering
+\includegraphics[width=\textwidth]{figs/captured.pdf}
+\caption{Own photographs: input, ground-truth overlay (teal) and predicted overlay (coral), with per-image mIoU. Seven photos, all kept in the evaluation, including the difficult ones.}
+\label{fig:captured}
+\end{figure*}
+
+\textbf{Hardware.} All timings were measured on CPU only, with one thread, using PyTorch and OpenCV. CPU: \cpumodel.
+
+\begin{table*}[t]
+\centering\small
+\renewcommand{\arraystretch}{1.18}
+\begin{tabular}{@{}lcccccccc@{}}
+\toprule
+\textbf{Set} & \textbf{Images} & \textbf{Res.} & \textbf{mIoU} & \textbf{BF1} & \textbf{$Q$} & \textbf{$\Tcpu$ (ms)} & \textbf{$\Sdisk$ (bytes)} & \textbf{CES}\\
+\midrule
+Validation (DUTS-TR split) & 1{,}055 & $128^2$\textsuperscript{a} & 0.8819 & 0.7854 & 0.8529 & -- & 767{,}807 & --\\
+\rowcolor{paper}
+\textbf{DUTS-TE (official)} & 5{,}019 & $256^2$ & \textbf{0.7491} & \textbf{0.5192} & \textbf{0.6801} & \textbf{17.32} & \textbf{767{,}807} & \textbf{0.6205}\\
+Own photos & 7 & $256^2$ & 0.8193 & 0.5629 & 0.7424 & 17.06\textsuperscript{b} & 767{,}807 & --\\
+\bottomrule
+\end{tabular}
+\caption{Main results. mIoU is computed from one aggregate confusion matrix; BF1 is the mean of per-image scores. \textsuperscript{a}Validation numbers come from the 128$\times$128 training loop and are therefore not resolution-matched with the $256{\times}256$ test numbers. \textsuperscript{b}Mean over 140 timed predictions (20 per photo after a warm-up); the official $\Tcpu$ is the DUTS-TE average. CES is reported only for DUTS-TE, the common benchmark.}
+\label{tab:main}
+\end{table*}
+
+\subsection{DUTS-TE benchmark}
+\begin{figure}[!t]
+\centering
+\includegraphics[width=0.8\columnwidth]{figs/duts.png}
+\caption{DUTS-TE examples (input, ground truth, prediction). Good: butterfly, fawn. Failures: the seated man (large object, dark clothing blending with the sofa) and the skier (small object, spurious blob on the snow).}
+\label{fig:duts}
+\end{figure}
+Table~\ref{tab:main} summarises all three evaluation sets. On DUTS-TE the pipeline spends 17.32\,ms per image (34.6\% of the time budget), so both hard limits are met with room to spare and the efficiency penalty is only
+\[
+\bigl(1-0.20\cdot\tfrac{17.32}{50}-0.10\cdot\tfrac{767807}{4194304}\bigr)=0.9124 .
+\]
+Hence $\mathrm{CES}=0.6801\times0.9124=0.6205$.
+
+Background IoU (0.9106) is far higher than foreground IoU (0.5875): the aggregate confusion matrix shows $14.5$M background pixels wrongly marked as object but also $11.6$M object pixels missed, against $37.1$M correctly found. Boundary F1 of 0.52 confirms that contours, more than regions, are the main weakness. Qualitative DUTS-TE examples are in Fig.~\ref{fig:duts}: compact, high-contrast objects (butterfly, fawn) are segmented well, while large objects in clutter (the seated man) and multi-part scenes are only partially recovered.
+
+\textbf{Validation-to-test gap.} Validation $Q$ (0.853) is much higher than test $Q$ (0.680). Part of this is the resolution mismatch noted in Table~\ref{tab:main}, and part is likely that the validation split, drawn from the same distribution as the training data, is easier than the official test set; the gap should not be read as a clean estimate of overfitting.
+
+
+\subsection{Own photographs}
+We photographed seven everyday objects and annotated them by hand on the $256{\times}256$ resized images (object $=255$, background $=0$). The set deliberately includes cluttered backgrounds, partial occlusion, a small object and a thin-structure case. Fig.~\ref{fig:captured} shows ground-truth and predicted masks as semi-transparent overlays and Table~\ref{tab:captured} gives per-image scores. These photographs were used only for testing.
+
+
+\begin{table}[t]
+\centering\small
+\renewcommand{\arraystretch}{1.1}
+\begin{tabular}{@{}cl>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}@{}}
+\toprule
+\textbf{ID} & \textbf{Object} & \textbf{IoU$_{\text{fg}}$} & \textbf{mIoU} & \textbf{BF1}\\
+\midrule
+1 & Chair (occluded)  & 0.867 & 0.915 & 0.720\\
+2 & Suitcase          & 0.469 & 0.579 & 0.298\\
+3 & Two bicycles      & 0.747 & 0.809 & 0.445\\
+4 & Backpack          & 0.947 & 0.938 & 0.651\\
+5 & Pair of clogs     & 0.922 & 0.944 & 0.867\\
+6 & Game controller   & 0.924 & 0.950 & 0.795\\
+7 & Computer mouse    & 0.503 & 0.648 & 0.165\\
+\midrule
+\multicolumn{2}{@{}l}{Aggregate} & 0.759 & 0.819 & 0.563\textsuperscript{c}\\
+\bottomrule
+\end{tabular}
+\caption{Per-photo results. \textsuperscript{c}Mean per-image BF1; mean per-image mIoU is 0.826.}
+\label{tab:captured}
+\end{table}
+
+Timing over 140 predictions averaged 17.06\,ms (median 16.61\,ms, std.\ 1.83\,ms, min 14.63\,ms, max 21.60\,ms), consistent with the DUTS-TE figure.
+
+% ============================================================
+\section{Failure Analysis}
+\textbf{Suitcase (ID 2): occlusion and internal detail.} Foreground IoU is only 0.469 and BF1 0.298. The suitcase is partly covered by books and cloth, its surface is a uniform beige that resembles the floor and wall, and dark seams and wheels create strong internal edges. The prediction therefore contains holes inside the object and leaks into the cloth on top; with only a $128{\times}128$ working resolution and a 176K-parameter model there is little capacity to learn that a plain surface can still belong to the salient object.
+
+\textbf{Computer mouse (ID 7): small object, textured and glowing background.} BF1 is just 0.165 (mIoU 0.648). The mouse is small, dark and lit by coloured light, sitting on a high-contrast geometric mousepad next to a cable and a second object. The network labels part of the mousepad as foreground and puts the contour in the wrong place, so a boundary that is a few pixels off is penalised heavily by the $5{\times}5$ tolerance. A small object at $128{\times}128$ has only a handful of pixels per boundary segment, which also hurts.
+
+\textbf{Two bicycles (ID 3): thin structures.} Region overlap is respectable (mIoU 0.809), but BF1 drops to 0.445. Spokes, frames and the overlap between the two bikes are thin, and the prediction merges them into a smoother blob that fills the spaces between the wheels. This shows why region overlap alone is not enough to judge segmentation quality.
+
+\textbf{Caveats.} Image 1 (chair under clothes) scores high because its target was defined as the visible chair-plus-clothes region; it should not be read as evidence that the model segments chairs in general. With seven photographs and hand-drawn masks, per-image scores carry annotation uncertainty, and none of these numbers is a statistically meaningful estimate of population performance.
+
+% ============================================================
+\section{Discussion and Future Work}
+The model achieves its goal as an efficiency trade-off: 17.3\,ms and 0.73\,MiB leave most of both budgets unused, and CES is reduced by only 8.8\% relative to $Q$. Since the budget is so far from binding, the most promising next steps spend some of it on quality:
+\begin{itemize}
+\item raise the working resolution (e.g.\ $160$ or $192$) and measure the gain against the $0.4\%$-per-millisecond cost;
+\item add boundary-aware supervision (e.g.\ an edge loss), aimed directly at the weak BF1 term;
+\item strengthen multi-scale fusion and add a stronger context block for large cluttered objects;
+\item evaluate on a larger, separately annotated hard-scene set, and take every design decision on validation data only.
+\end{itemize}
+
+\textbf{Reproducibility.} Code, the final checkpoint \texttt{final/unet\_128\_multiscale\_v1/model\_best.pt}, evaluation scripts and the captured photographs (\texttt{captured/\{original, images\_256, masks\_256\}}) are in the project repository. \texttt{predict.py --image photo.jpg --out mask.png} resizes the photo, segments it, saves a 0/255 PNG and prints \texttt{T CPU ms} and \texttt{S disk bytes} averaged over 20 further runs. The result files are \texttt{results\_duts-te\_256.json} and \texttt{results\_captured.json}.
+
+
+\end{document}
