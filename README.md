@@ -1,22 +1,81 @@
-# CV Assignment 2 — Cost-Efficient Salient Object Segmentation
+# CSL7360 — Computer Vision Assignment 2
+## Cost-Efficient Salient Object Segmentation
 
-A lightweight binary salient-object segmentation system implemented in PyTorch.
+**Student:** Prasangeet Dongre  
+**Roll Number:** B23CH1033  
+**Course:** CSL7360 — Computer Vision
 
-## Pipeline
+This repository contains a lightweight binary salient-object segmentation system built with PyTorch and evaluated under a constrained CPU-inference budget. The experiments use DUTS for training, validation, and the official test benchmark, followed by a separate evaluation on seven manually captured photographs.
 
-- **Model:** SwiftMask-inspired nested residual U-block encoder-decoder with depthwise-separable convolutions.
-- **Training data:** DUTS-TR only.
-- **Validation:** deterministic 90/10 split of DUTS-TR.
-- **Final test:** DUTS-TE, held out from training and model selection.
-- **Training loss:** 0.5 BCE-with-logits + 0.5 soft Dice.
-- **Optimizer:** AdamW with cosine learning-rate annealing.
-- **Default model input:** 128 × 128. Evaluation scores predictions against the original 256 × 256 masks.
+The project studies the trade-off between segmentation quality, boundary accuracy, inference latency, and serialized model size. It also documents where the model generalizes well and where it fails on cluttered, occluded, or visually ambiguous scenes.
 
-## Dataset layout
+---
 
-Place the extracted dataset under `data/`:
+## 1. Executive summary
 
-```text
+The selected checkpoint is a **three-level residual U-Net with dilated multi-scale context and deep supervision**. It receives 128 × 128 RGB tensors during inference. For the assignment-compliant DUTS-TE evaluation, the input photograph is first represented at 256 × 256, reduced to the model's 128 × 128 working resolution inside the timed function, and the output logits are interpolated back to 256 × 256 before thresholding.
+
+### Official DUTS-TE result
+
+| Measure | Result |
+|---|---:|
+| Test images | 5,019 |
+| Metric / prediction resolution | 256 × 256 |
+| CNN working resolution | 128 × 128 |
+| Foreground IoU | 0.587513 |
+| Background IoU | 0.910646 |
+| **Aggregate mIoU** | **0.749080** |
+| Mean per-image Boundary F1 | 0.519177 |
+| Quality score Q | 0.680109 |
+| CPU time per image, TCPU | **17.3210 ms** |
+| Checkpoint size, Sdisk | **767,807 bytes (0.7322 MiB)** |
+| **Compute Efficiency Score (CES)** | **0.620539** |
+
+The measured CPU time is below the assignment limit of 50 ms per image. The checkpoint is also below the 4 MiB storage budget. The official score is therefore non-zero under the assignment's CES formula.
+
+### Personal-photo result
+
+The supplementary evaluation uses all seven paired personal photographs and their manually drawn binary masks.
+
+| Measure | Result |
+|---|---:|
+| Number of photographs | 7 |
+| Resolution | 256 × 256 |
+| Foreground IoU | 0.759332 |
+| Background IoU | 0.879318 |
+| **Aggregate mIoU** | **0.819325** |
+| Mean per-image mIoU | 0.826278 |
+| Mean per-image Boundary F1 | 0.562910 |
+| Quality score Q | 0.742401 |
+| Mean CPU time over 140 timed predictions | 17.0601 ms |
+| Median CPU time over 140 timed predictions | 16.6144 ms |
+| Checkpoint size | 767,807 bytes |
+| CES | Not calculated for this custom set |
+
+The personal-photo result is a small supplementary generalization study. It is not a replacement for the 5,019-image DUTS-TE benchmark and is not used to calculate the official CES.
+
+---
+
+## 2. Problem formulation
+
+The task is binary salient-object segmentation. For an input RGB photograph, the network predicts a foreground probability for each pixel. Thresholding the probabilities produces a binary mask:
+
+- Foreground / salient object: 1 (saved as 255 in PNG output).
+- Background: 0 (saved as 0 in PNG output).
+
+The model is intentionally compact. The experiment does not use pretrained segmentation weights or a pretrained backbone. The final checkpoint is trained on DUTS-TR and selected using a validation subset of DUTS-TR.
+
+The principal design question is not only whether the network can segment an object accurately, but whether that quality can be achieved while respecting the CPU-time and model-size budgets.
+
+---
+
+## 3. Dataset and experimental split
+
+### 3.1 DUTS
+
+The official dataset layout expected by the code is:
+
+~~~text
 data/
 ├── DUTS-TR/
 │   ├── DUTS-TR-Image/
@@ -24,54 +83,530 @@ data/
 └── DUTS-TE/
     ├── DUTS-TE-Image/
     └── DUTS-TE-Mask/
-```
+~~~
 
-Each image is paired with a PNG mask having the same filename stem.
+The experiment uses the standard DUTS split sizes:
 
-## Environment
+| Split | Images | Purpose |
+|---|---:|---|
+| DUTS-TR | 10,553 | Training and validation source |
+| DUTS-TR training subset | 9,498 | Gradient updates |
+| DUTS-TR validation subset | 1,055 | Monitoring and checkpoint selection |
+| DUTS-TE | 5,019 | Final benchmark evaluation |
 
-The repository uses `uv`. Install/sync dependencies:
+The validation subset is 10% of DUTS-TR. The code creates a deterministic, foreground-area-stratified split: images are ordered by the foreground proportion in their masks, divided into quantile-like strata, and sampled with seed 42. The split indices and filenames are saved with the final experiment so that the same validation images can be recovered.
 
-```bash
+DUTS-TE is not loaded by the training loop and is not used for gradient updates or the saved validation checkpoint-selection calculation.
+
+**Benchmark-integrity note:** During the broader iterative development of this project, DUTS-TE results were inspected during comparisons between candidate approaches. Therefore, although DUTS-TE was not used for training or gradient-based checkpoint selection, it should not be described as a completely untouched blind test set. The reported score is the final run under the documented evaluation protocol, with this development-history limitation disclosed.
+
+### 3.2 Image and mask preprocessing
+
+The project uses explicit interpolation and thresholding rules:
+
+1. Photographs are resized to 256 × 256 with OpenCV INTER_AREA interpolation for the assignment's official input and metric representation.
+2. Ground-truth masks are resized with INTER_NEAREST so that interpolation does not create new boundary labels.
+3. A mask pixel is foreground when its grayscale value is at least 128; otherwise it is background.
+4. Training tensors are RGB, floating-point, and normalized to [0, 1].
+5. The final network's working resolution is 128 × 128. The official evaluator starts with a 256 × 256 image already in memory, performs the 256-to-128 conversion inside the timed function, and returns a 256 × 256 binary prediction.
+
+The assignment intentionally uses a fixed square representation. Original aspect ratios are not preserved during this resize.
+
+### 3.3 Training-only augmentation
+
+Augmentation is applied to DUTS-TR training samples, not to validation or test samples. Image and mask receive the same geometric transform:
+
+- Horizontal flip with probability 0.5.
+- Vertical flip with probability 0.10.
+- Isotropic scale perturbation sampled from 0.90 to 1.10, with probability 0.5.
+- Image-only brightness/intensity perturbation, per-channel gain perturbation, and clipping to the valid 8-bit range.
+
+Masks use nearest-neighbour interpolation during geometric transforms. Newly exposed mask pixels are background. These transformations increase variation in object position, scale, orientation, brightness, and colour without changing the intended image-mask correspondence.
+
+---
+
+## 4. Network architecture
+
+The final network is implemented in **models/segmentation_cnn.py**. It is a three-level residual U-Net with a multi-scale context block at its bottleneck and two auxiliary decoder heads used during training.
+
+### 4.1 Encoder
+
+The encoder uses residual convolution blocks with two 3 × 3 convolutions, batch normalization, ReLU activations, and a projected residual shortcut when the input and output channel counts differ.
+
+| Stage | Output channels | Spatial scale relative to 128 × 128 |
+|---|---:|---:|
+| Encoder 1 | 16 | 1× |
+| Encoder 2 | 24 | 1/2 |
+| Encoder 3 | 40 | 1/4 |
+| Bottleneck | 56 | 1/8 |
+
+Max pooling performs the downsampling between encoder stages.
+
+### 4.2 Dilated multi-scale context
+
+At the bottleneck, three parallel branches use dilation rates 1, 2, and 4. Each branch first projects the features to 16 channels and then applies a depthwise 3 × 3 convolution at its corresponding dilation. The three branch outputs are concatenated, projected back to 56 channels, and combined with the bottleneck input through a residual addition.
+
+The purpose is to expose the bottleneck to multiple receptive-field scales without introducing a large conventional multi-branch convolution block.
+
+### 4.3 Decoder and deep supervision
+
+The decoder upsamples features and concatenates them with the corresponding encoder skip features:
+
+- 56 + 40 channels are decoded to 40.
+- 40 + 24 channels are decoded to 24.
+- 24 + 16 channels are decoded to 16.
+
+A 1 × 1 convolution produces the final one-channel logit map. During training, auxiliary prediction heads at the quarter- and half-resolution decoder stages provide deep supervision. During ordinary inference, the network returns only the main logits.
+
+The final model contains **175,971 trainable parameters**. The saved best checkpoint occupies **767,807 bytes**.
+
+---
+
+## 5. Training methodology
+
+The final experiment configuration is stored in **final/unet_128_multiscale_v1/config.json**.
+
+| Hyperparameter | Value |
+|---|---:|
+| Training epochs completed | 60 |
+| Best checkpoint epoch | 56 |
+| Input resolution | 128 × 128 |
+| Batch size | 8 |
+| Gradient accumulation steps | 2 |
+| Approximate effective batch size | 16 |
+| Initial learning rate | 0.0007 |
+| Minimum learning rate | 0.000001 |
+| Weight decay | 0.00001 |
+| Warm-up epochs | 3 |
+| Random seed | 42 |
+| Training device recorded in config | CUDA |
+| Mixed precision | Enabled |
+
+### 5.1 Loss function
+
+Each supervised output uses a 50:50 combination of binary cross-entropy with logits and soft Dice loss:
+
+\[
+L_{\mathrm{base}} = 0.5 L_{\mathrm{BCE}} + 0.5 L_{\mathrm{Dice}}
+\]
+
+The deep-supervision objective combines the main and auxiliary decoder losses:
+
+\[
+L = 0.60 L_{\mathrm{main}}
+  + 0.15 L_{\mathrm{quarter}}
+  + 0.25 L_{\mathrm{half}}
+\]
+
+The weights sum to one. The main output receives the largest contribution, while the auxiliary heads encourage intermediate decoder representations to remain useful for segmentation.
+
+### 5.2 Optimizer and learning-rate schedule
+
+AdamW is used for optimization. Weight decay is applied to multi-dimensional weights, while bias and one-dimensional normalization parameters are placed in a no-weight-decay parameter group.
+
+The learning rate is linearly warmed up for the first three epochs and then decayed using a cosine schedule toward 1e-6. Gradient accumulation combines two micro-batches, and gradient norms are clipped to 1.0. Automatic mixed precision is enabled for CUDA training.
+
+### 5.3 Checkpoint selection
+
+The best checkpoint is selected using validation quality:
+
+\[
+Q_{\mathrm{val}} = 0.70\,mIoU_{\mathrm{val}}
+                 + 0.30\,BF1_{\mathrm{val}}
+\]
+
+The best recorded checkpoint occurred at epoch 56 of 60.
+
+| Best validation statistic | Value |
+|---|---:|
+| Validation loss | 0.140266 |
+| Foreground IoU | 0.830645 |
+| Background IoU | 0.933085 |
+| mIoU | 0.881865 |
+| Precision | 0.902012 |
+| Recall | 0.913032 |
+| Boundary F1 | 0.785402 |
+| Validation quality Q | 0.852926 |
+
+**Resolution qualification:** the training/validation dataset loader uses 128 × 128 tensors, so the values above are the 128-resolution training-loop checkpoint-selection diagnostics. The official DUTS-TE result below is separately computed at 256 × 256 using the assignment evaluation path. These validation and test values should not be treated as a strictly resolution-matched comparison.
+
+Training curves and validation history are retained in the final experiment directory:
+
+- Training and validation loss: **final/unet_128_multiscale_v1/loss_curve.png**
+- Validation metrics: **final/unet_128_multiscale_v1/validation_metrics.png**
+- Configuration: **final/unet_128_multiscale_v1/config.json**
+- Per-epoch history: **final/unet_128_multiscale_v1/history.csv** and **history.json**
+
+![Training and validation loss](final/unet_128_multiscale_v1/loss_curve.png)
+
+![Validation metric history](final/unet_128_multiscale_v1/validation_metrics.png)
+
+---
+
+## 6. Evaluation protocol and metrics
+
+The official evaluation implementation is **src/evaluate.py**. It runs on CPU with one PyTorch thread and one OpenCV thread. The evaluation warms up the model once before timing.
+
+### 6.1 Timed inference path
+
+For each official DUTS-TE sample:
+
+1. Load the source photograph and ground-truth mask before timing.
+2. Resize the photograph to 256 × 256 and the mask to 256 × 256. This original-file I/O and resize are outside TCPU.
+3. Start CPU process-time measurement with the 256 × 256 BGR image already in memory.
+4. Resize the image to 128 × 128 using INTER_AREA.
+5. Convert BGR to RGB, normalize to [0, 1], construct the tensor, and run the CNN.
+6. Bilinearly upsample the logits to 256 × 256.
+7. Apply sigmoid and the 0.5 threshold, then materialize the 256 × 256 binary prediction on CPU.
+8. Stop timing.
+
+Thus, TCPU includes the resize from 256 to 128, colour conversion, normalization, tensor creation, model forward pass, upsampling, sigmoid, thresholding, and output conversion. It excludes checkpoint loading, original file I/O, original-photo resizing to 256 × 256, metric computation, and visualization writing.
+
+The official evaluator measures one timed prediction per DUTS-TE image and averages over all 5,019 images.
+
+### 6.2 Mean intersection over union
+
+The evaluator accumulates one dataset-level confusion matrix:
+
+\[
+C =
+\begin{bmatrix}
+TN & FP \\
+FN & TP
+\end{bmatrix}
+\]
+
+Foreground and background IoU are:
+
+\[
+IoU_{\mathrm{fg}} = \frac{TP}{TP+FP+FN}
+\]
+
+\[
+IoU_{\mathrm{bg}} = \frac{TN}{TN+FP+FN}
+\]
+
+The reported dataset-level mean IoU is:
+
+\[
+mIoU = \frac{IoU_{\mathrm{fg}}+IoU_{\mathrm{bg}}}{2}
+\]
+
+This is computed from the aggregate confusion matrix, not by averaging the per-image IoU values.
+
+### 6.3 Boundary F1
+
+A boundary pixel is a foreground pixel having at least one background neighbour in its four-connected neighbourhood. Pixels outside the image are treated as background.
+
+A predicted boundary pixel is matched when a ground-truth boundary pixel exists within a 5 × 5 window (radius 2). The same matching is performed in the reverse direction to obtain boundary precision and recall. Their harmonic mean is Boundary F1. The official dataset score is the mean of the per-image Boundary F1 scores.
+
+Boundary F1 complements mIoU: region overlap can remain high even when object contours are displaced, fragmented, or poorly localized.
+
+### 6.4 Quality score and Compute Efficiency Score
+
+The quality component is:
+
+\[
+Q = 0.70\,mIoU + 0.30\,BF1
+\]
+
+The assignment budgets are 50 ms per image and 4 MiB for the saved model file. With TCPU in milliseconds and Sdisk in bytes:
+
+\[
+CES =
+Q\left(
+1 - 0.20\frac{TCPU}{50}
+  - 0.10\min\left(1,\frac{Sdisk}{4,194,304}\right)
+\right)
+\]
+
+CES is set to zero if TCPU exceeds 50 ms. The size term uses the exact serialized checkpoint file size, without compression.
+
+---
+
+## 7. Official DUTS-TE results
+
+The final official result is stored in **final/unet_128_multiscale_v1/results_duts-te_256.json**.
+
+| Metric | DUTS-TE result |
+|---|---:|
+| Images evaluated | 5,019 |
+| Foreground IoU | 0.587513 |
+| Background IoU | 0.910646 |
+| **mIoU** | **0.749080** |
+| Boundary F1 | 0.519177 |
+| **Quality Q** | **0.680109** |
+| Total CPU process time | 86.9341 s |
+| **Average TCPU** | **17.3210 ms/image** |
+| **Checkpoint size** | **767,807 bytes** |
+| Checkpoint size | 0.7322 MiB |
+| **CES** | **0.620539** |
+
+Official aggregate confusion matrix:
+
+| | Predicted background | Predicted foreground |
+|---|---:|---:|
+| Ground-truth background | 265,717,218 | 14,490,106 |
+| Ground-truth foreground | 11,582,327 | 37,135,533 |
+
+### 7.1 Efficiency interpretation
+
+- The average CPU latency is 17.3210 ms, approximately 34.64% of the 50 ms budget. The measured run is about 32.679 ms per image below the limit.
+- The checkpoint is 767,807 bytes, approximately 18.30% of the 4 MiB size budget.
+- Both hard budget constraints are satisfied, so the efficiency penalty is moderate rather than eliminating the score.
+- The network's 128 × 128 internal resolution is an important part of the efficiency design. The returned prediction and official metric masks remain 256 × 256.
+
+### 7.2 Quality interpretation and generalization gap
+
+Background IoU (0.910646) is substantially higher than foreground IoU (0.587513). The model is generally more reliable at rejecting background pixels than at recovering every foreground pixel. The foreground IoU and Boundary F1 indicate that missed object regions and imprecise contours remain important limitations.
+
+The best training-loop validation mIoU was 0.881865 and the official DUTS-TE mIoU was 0.749080. The validation quality was 0.852926, whereas the official test quality was 0.680109. This is a sizeable generalization gap. It suggests that the validation subset was easier or otherwise not fully representative of the test distribution, and that strong validation performance did not translate one-to-one to the test set. The resolution qualification in Section 5.3 also means the validation and test figures are not a perfectly matched comparison.
+
+---
+
+## 8. Supplementary evaluation on personal photographs
+
+Seven phone photographs were retained in the captured-photo evaluation. Each has a manually annotated binary target mask. The evaluation includes every paired image, including difficult and ambiguous examples, rather than dropping poor-performing scenes.
+
+### 8.1 Captured scenes
+
+| ID | Target definition | Scene characteristic |
+|---|---|---|
+| 1 | Chair in a clothes-covered / occluded scene | Heavy overlap and clutter |
+| 2 | Suitcase | Partly covered by nearby objects; dark internal details |
+| 3 | Two bicycles as the annotated foreground region | Multiple overlapping structures and thin boundaries |
+| 4 | Backpack | Cluttered background |
+| 5 | Pair of clogs | Two similar foreground objects |
+| 6 | Game controller | Relatively distinct object silhouette |
+| 7 | Computer mouse | Small object on a textured mousepad / cluttered background |
+
+Only visible object pixels were labelled as foreground in occluded regions. These masks are manually annotated and are therefore subject to boundary-placement uncertainty. In particular, IDs 1 and 3 use composite/overlapping scene definitions; their scores should be interpreted according to those target definitions.
+
+### 8.2 Aggregate captured-photo metrics
+
+| Metric | Result |
+|---|---:|
+| Foreground IoU | 0.759332 |
+| Background IoU | 0.879318 |
+| **Aggregate mIoU** | **0.819325** |
+| Mean per-image mIoU | 0.826278 |
+| Mean Boundary F1 | 0.562910 |
+| **Quality Q** | **0.742401** |
+
+The aggregate mIoU is calculated from the combined confusion matrix. Mean per-image mIoU is shown separately because it weights each of the seven photographs equally. They answer different questions and are not expected to be identical.
+
+### 8.3 Per-image results
+
+| ID | Target | Foreground IoU | Background IoU | mIoU | Boundary F1 | Mean CPU ms |
+|---|---|---:|---:|---:|---:|---:|
+| 1 | Occluded chair scene | 0.866912 | 0.963910 | 0.915411 | 0.719701 | 16.6344 |
+| 2 | Suitcase | 0.468532 | 0.689050 | 0.578791 | 0.297589 | 16.5237 |
+| 3 | Two bicycles | 0.747097 | 0.871070 | 0.809083 | 0.445320 | 17.4324 |
+| 4 | Backpack | 0.947325 | 0.929285 | 0.938305 | 0.651359 | 18.7101 |
+| 5 | Pair of clogs | 0.922388 | 0.966059 | 0.944223 | 0.866655 | 18.9273 |
+| 6 | Game controller | 0.924217 | 0.975738 | 0.949977 | 0.794693 | 16.0055 |
+| 7 | Computer mouse | 0.503365 | 0.792940 | 0.648153 | 0.165055 | 15.1870 |
+
+### 8.4 Captured-photo timing
+
+The captured evaluator performs one warm-up prediction, then 20 timed predictions for each of the seven in-memory images: 140 timed predictions in total. The same 256-to-128-to-256 inference function is timed. The image and mask are read before timing, and metric calculation and visualization writing are outside the timed region.
+
+| Timing statistic | Result |
+|---|---:|
+| Timed predictions | 140 |
+| Mean CPU time | 17.0601 ms |
+| Median CPU time | 16.6144 ms |
+| Standard deviation | 1.8336 ms |
+| Minimum | 14.6265 ms |
+| Maximum | 21.5993 ms |
+
+These timings are supplementary measurements on seven repeated images. They are not the official TCPU, which is the average over all 5,019 DUTS-TE images.
+
+### 8.5 Failure analysis
+
+**Suitcase (ID 2).** This is one of the weakest examples: foreground IoU is 0.468532 and Boundary F1 is 0.297589. The prediction misses portions of the suitcase and contains internal holes. Dark handles, seams, and other high-contrast details can make a single coherent foreground region difficult to recover.
+
+**Computer mouse (ID 7).** This is the weakest boundary result: mIoU is 0.648153 and Boundary F1 is 0.165055. The prediction spills into parts of the mousepad and surrounding region. The relatively low foreground IoU (0.503365) is consistent with substantial foreground/background confusion.
+
+**Bicycles (ID 3).** The region score is moderate (mIoU 0.809083), but Boundary F1 is lower (0.445320). Thin structures, spokes, frame members, and overlap between two bicycles make boundary localization difficult. This illustrates why region overlap alone is not enough to describe segmentation quality.
+
+**Backpack (ID 4).** The mIoU is high (0.938305), but Boundary F1 is 0.651359. The object region is mostly recovered while some contour mismatch remains.
+
+**Clogs and controller (IDs 5 and 6).** These are the strongest region results, with mIoU 0.944223 and 0.949977 respectively. Their Boundary F1 values (0.866655 and 0.794693) also indicate better contour agreement than the challenging examples.
+
+ID 1 has a high score under its manually defined composite/occluded target. Because the target is not an isolated, unobstructed chair, this score should not be used to claim that the model reliably segments chairs in general.
+
+### 8.6 Captured-photo visualizations
+
+The figure shows, for each photograph, the input, manual ground-truth mask, model prediction, and prediction overlay.
+
+![Captured-photo segmentation results](captured/evaluation/segmentation_examples_256.png)
+
+The annotation review sheet is also retained:
+
+![Captured-photo mask review](captured/mask_review.jpg)
+
+The personal-photo experiment is a small, manually annotated stress test. Seven examples are not enough to estimate population-level generalization or to support statistical claims. These photographs were not used to train the model or select the saved checkpoint.
+
+---
+
+## 9. Interpreting the experiments together
+
+The two evaluation sets serve different purposes:
+
+- **DUTS-TE** provides the official dataset-level quality and efficiency result. Its 5,019 images are used for the reported mIoU, Boundary F1, TCPU, model size, Q, and CES.
+- **Captured photographs** provide a small supplementary check on personally selected real-world scenes. They expose concrete behaviours on occlusion, clutter, multiple similar objects, and fine boundaries.
+
+The captured-photo aggregate mIoU (0.819325) is higher than the DUTS-TE mIoU (0.749080), but this does not mean the custom photographs are an easier or more representative benchmark in a statistically controlled sense. There are only seven images, target definitions vary, and the scene distribution is selected rather than sampled. The per-image results and failure visualizations are more informative than treating the two aggregate values as a direct ranking.
+
+Across both evaluations, the model is compact and comfortably within the CPU and storage budgets. Its main weakness is segmentation quality at foreground boundaries and in cluttered scenes, rather than raw inference cost.
+
+---
+
+## 10. Reproducibility
+
+### 10.1 Environment setup
+
+Python 3.11 or later is required. The project uses uv for dependency management.
+
+~~~bash
 uv sync
-```
+~~~
 
-## Training
+The implementation uses PyTorch, NumPy, OpenCV, Matplotlib, and tqdm. The project does not depend on pretrained torchvision segmentation models.
 
-Run from the repository root:
+### 10.2 Dataset placement
 
-```bash
+Place DUTS-TR and DUTS-TE under the data directory using the layout in Section 3.1. Each image must have a matching PNG mask with the same filename stem.
+
+### 10.3 Training command
+
+The following command reproduces the recorded core training configuration in a new experiment directory. It does not overwrite the committed final checkpoint.
+
+~~~bash
 uv run python -m src.train \
   --data data \
-  --epochs 40 \
-  --batch-size 16 \
+  --epochs 60 \
+  --batch-size 8 \
+  --accumulation-steps 2 \
+  --learning-rate 0.0007 \
+  --min-learning-rate 0.000001 \
+  --weight-decay 0.00001 \
+  --warmup-epochs 3 \
+  --val-fraction 0.10 \
+  --seed 42 \
   --image-size 128 \
-  --output-dir experiments/swiftmask_v2
-```
+  --output-dir experiments/reproduction_run
+~~~
 
-A quick smoke test can use a subset of DUTS-TR:
+### 10.4 Official DUTS-TE evaluation
 
-```bash
-uv run python -m src.train --limit 128 --epochs 1 --batch-size 8 --output-dir experiments/smoke_test
-```
-
-Training writes the configuration, history, loss/IoU plots, and best/latest checkpoints into the selected experiment directory. Existing experiments are not overwritten unless `--overwrite` is supplied.
-
-## Final evaluation
-
-Evaluate only after training:
-
-```bash
+~~~bash
 uv run python -m src.evaluate \
   --data data \
   --split DUTS-TE \
-  --checkpoint experiments/swiftmask_v2/model_best.pt
-```
+  --subset all \
+  --checkpoint final/unet_128_multiscale_v1/model_best.pt \
+  --output-dir final/unet_128_multiscale_v1
+~~~
 
-Evaluation runs the full single-image inference path on CPU with one thread, matching the compute-budget benchmark setup. It writes `results.json` and `segmentation_examples.png` alongside the checkpoint by default. The report includes foreground/background IoU, dataset-level mIoU, per-image Boundary F1, CPU milliseconds per image, checkpoint size, quality score Q, and CES.
+This evaluates the full 5,019-image DUTS-TE split and writes the 256 × 256 result JSON and segmentation examples into the final experiment directory.
 
-## Notes
+### 10.5 Captured-photo evaluation
 
-- Do not use DUTS-TE for training, validation, threshold selection, or checkpoint selection.
-- Compare models using identical DUTS-TE images, preprocessing, threshold, and metric implementations.
-- The 128 × 128 training resolution is the reference-inspired efficiency setting. Use `--image-size 256` for a separate higher-resolution experiment; do not compare the two without reporting the resolution.
+~~~bash
+uv run python -m src.evaluate_captured \
+  --checkpoint final/unet_128_multiscale_v1/model_best.pt
+~~~
+
+This evaluates all paired images in captured/images_256 and captured/masks_256_binary, runs 20 timed predictions per image after a warm-up, and overwrites:
+
+- captured/evaluation/results_captured.json
+- captured/evaluation/predictions/
+- captured/evaluation/segmentation_examples_256.png
+
+### 10.6 Single-image inference
+
+~~~bash
+uv run python predict.py \
+  --image path/to/photo.jpg \
+  --out path/to/predicted_mask.png \
+  --checkpoint final/unet_128_multiscale_v1/model_best.pt
+~~~
+
+The prediction is saved as a 256 × 256 binary PNG. The CLI prints the assignment's two timing/size lines: T CPU ms and S disk bytes.
+
+### 10.7 Hardware and timing reproducibility
+
+The committed official result records CPU-only inference with one PyTorch thread and one OpenCV thread. The training configuration records CUDA and mixed precision. The result JSON does not contain the exact CPU model string; record it separately on the machine used for the final submission, for example with:
+
+~~~bash
+lscpu | grep -E "Model name|CPU\\(s\\)"
+~~~
+
+CPU timing varies with processor, operating-system load, power state, and software versions. Re-run the official evaluator on the target machine when reproducing the timing result.
+
+---
+
+## 11. Repository layout
+
+~~~text
+.
+├── captured/
+│   ├── original/                     # Original phone photographs
+│   ├── images_256/                   # Resized 256x256 photographs
+│   ├── masks_256/                    # Original editor exports
+│   ├── masks_256_binary/             # Binary 0/255 ground-truth masks
+│   └── evaluation/
+│       ├── predictions/              # Model predictions
+│       ├── results_captured.json      # Custom-set metrics and timing
+│       └── segmentation_examples_256.png
+├── final/
+│   └── unet_128_multiscale_v1/
+│       ├── model_best.pt              # Selected trained checkpoint
+│       ├── config.json                # Experiment configuration
+│       ├── best_metrics.json          # Best validation metrics
+│       ├── history.csv
+│       ├── history.json
+│       ├── results_duts-te_256.json  # Official 256x256 test result
+│       ├── loss_curve.png
+│       ├── validation_metrics.png
+│       └── segmentation_examples_256.png
+├── models/
+│   └── segmentation_cnn.py
+├── src/
+│   ├── dataset.py
+│   ├── evaluate.py
+│   ├── evaluate_captured.py
+│   ├── metrics.py
+│   ├── prepare_captured.py
+│   ├── splits.py
+│   └── train.py
+├── tests/
+├── predict.py
+├── pyproject.toml
+└── README.md
+~~~
+
+Large raw data and generated experiment outputs may be excluded by .gitignore in a fresh clone. The committed final experiment and captured evaluation artifacts are included in this repository snapshot.
+
+---
+
+## 12. Limitations and next experiments
+
+1. **Validation-to-test gap:** validation checkpoint-selection scores are substantially higher than DUTS-TE test scores. The resolution difference and iterative test-set inspection should be considered when interpreting generalization.
+2. **Boundary quality:** Boundary F1 is lower than region overlap. Fine contours, thin structures, and partially occluded objects remain difficult.
+3. **Foreground recall:** DUTS-TE foreground IoU is much lower than background IoU, indicating that recovering object regions is more difficult than preserving background.
+4. **Small custom set:** seven manually captured images are useful for failure inspection but are not a statistically representative evaluation dataset.
+5. **Manual-mask uncertainty:** annotation choices on occluded and overlapping objects affect per-image scores. Consistent target definitions are important.
+6. **Hardware metadata:** the exact CPU model was not captured in the committed result JSON and should be recorded alongside any newly reported timing run.
+
+Potential follow-up experiments include increasing input resolution while measuring the cost against CES, adding boundary-aware supervision, testing stronger multi-scale feature fusion, and evaluating on a larger separately annotated set of difficult scenes. Any architecture or threshold decisions should be made using validation data rather than repeatedly optimizing against the test set.
+
+---
+
+## 13. Final conclusion
+
+The final residual multi-scale U-Net demonstrates that a compact segmentation model can satisfy the assignment's CPU and disk budgets: the official DUTS-TE run reports 17.3210 ms per image and a 767,807-byte checkpoint, producing a CES of 0.620539. The official 256 × 256 mIoU is 0.749080, with Boundary F1 of 0.519177.
+
+The seven captured photographs provide a complementary view of practical behaviour. The model handles several clearly defined objects well, but the suitcase, mouse, and overlapping bicycles expose weaknesses in foreground recovery and boundary localization. Overall, the experiments show a viable efficiency-quality trade-off while identifying contour precision, clutter robustness, and generalization as the main opportunities for improvement.
