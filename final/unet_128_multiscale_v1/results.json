@@ -1,0 +1,26 @@
+{
+  "model": "model_best.pt",
+  "split": "DUTS-TE",
+  "num_images": 5019,
+  "resolution": 128,
+  "threshold": 0.5,
+  "foreground_iou": 0.5851742857830124,
+  "background_iou": 0.9099473710143047,
+  "miou": 0.7475608283986586,
+  "boundary_f1": 0.6225222856248348,
+  "average_cpu_ms": 17.00900722972711,
+  "model_size_bytes": 767807,
+  "quality_score": 0.7100492655665114,
+  "ces_score": 0.6487422101163474,
+  "confusion_matrix": [
+    [
+      66392167,
+      3665914
+    ],
+    [
+      2904564,
+      9268651
+    ]
+  ],
+  "checkpoint": "experiments/unet_128_multiscale_v1/model_best.pt"
+}

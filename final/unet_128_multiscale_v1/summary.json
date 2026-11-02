@@ -1,0 +1,9 @@
+{
+  "best_validation_quality": 0.8529257424135914,
+  "best_validation_loss": 0.1402660319731699,
+  "best_epoch": 56,
+  "epochs_completed": 60,
+  "trainable_parameters": 175971,
+  "best_checkpoint": "experiments/unet_128_multiscale_v1/model_best.pt",
+  "resume_checkpoint": "experiments/unet_128_multiscale_v1/training_state.pt"
+}

@@ -1,0 +1,20 @@
+{
+  "architecture": "three-level residual U-Net with dilated multi-scale bottleneck and deep supervision",
+  "input_resolution": 128,
+  "train_split": "DUTS-TR",
+  "validation_split": "deterministic foreground-area-stratified 10% subset of DUTS-TR",
+  "test_split": "DUTS-TE; not used for training or checkpoint selection",
+  "epochs": 60,
+  "batch_size": 8,
+  "accumulation_steps": 2,
+  "effective_batch_size_approximately": 16,
+  "learning_rate": 0.0007,
+  "min_learning_rate": 1e-06,
+  "weight_decay": 1e-05,
+  "warmup_epochs": 3,
+  "loss": "0.60 main BCE-Dice + 0.15 quarter aux BCE-Dice + 0.25 half aux BCE-Dice",
+  "checkpoint_metric": "validation Q = 0.70*mIoU + 0.30*BoundaryF1",
+  "seed": 42,
+  "device": "cuda",
+  "mixed_precision": true
+}

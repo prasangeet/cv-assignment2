@@ -1,0 +1,34 @@
+{
+  "model": "model_best.pt",
+  "split": "DUTS-TE",
+  "subset": "all",
+  "num_images": 5019,
+  "cnn_input_resolution": 128,
+  "official_metric_resolution": 256,
+  "ground_truth_resolution": 256,
+  "prediction_resolution": 256,
+  "threshold": 0.5,
+  "device": "CPU",
+  "cpu_threads": 1,
+  "timing_protocol": "256x256 BGR in memory -> downsample/color/normalize/tensor/model/upsample/threshold -> 256x256 uint8 mask; file I/O excluded",
+  "total_cpu_seconds": 86.93408489899943,
+  "average_cpu_ms": 17.320997190476078,
+  "model_size_bytes": 767807,
+  "foreground_iou": 0.5875134947389384,
+  "background_iou": 0.9106464780000029,
+  "miou": 0.7490799863694706,
+  "boundary_f1": 0.5191774722728426,
+  "quality_score": 0.6801092321404821,
+  "ces_score": 0.6205385092768265,
+  "confusion_matrix": [
+    [
+      265717218,
+      14490106
+    ],
+    [
+      11582327,
+      37135533
+    ]
+  ],
+  "checkpoint": "experiments/unet_128_multiscale_v1/model_best.pt"
+}
