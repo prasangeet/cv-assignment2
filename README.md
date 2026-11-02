@@ -9,6 +9,22 @@ This repository contains a lightweight binary salient-object segmentation system
 
 The project studies the trade-off between segmentation quality, boundary accuracy, inference latency, and serialized model size. It also documents where the model generalizes well and where it fails on cluttered, occluded, or visually ambiguous scenes.
 
+## Table of contents
+
+1. [Executive summary](#1-executive-summary)
+2. [Problem formulation](#2-problem-formulation)
+3. [Dataset and experimental split](#3-dataset-and-experimental-split)
+4. [Network architecture](#4-network-architecture)
+5. [Training methodology](#5-training-methodology)
+6. [Evaluation protocol and metrics](#6-evaluation-protocol-and-metrics)
+7. [Official DUTS-TE results](#7-official-duts-te-results)
+8. [Supplementary evaluation on personal photographs](#8-supplementary-evaluation-on-personal-photographs)
+9. [Interpreting the experiments together](#9-interpreting-the-experiments-together)
+10. [Reproducibility](#10-reproducibility)
+11. [Repository layout](#11-repository-layout)
+12. [Limitations and next experiments](#12-limitations-and-next-experiments)
+13. [Final conclusion](#13-final-conclusion)
+
 ---
 
 ## 1. Executive summary
@@ -27,8 +43,8 @@ The selected checkpoint is a **three-level residual U-Net with dilated multi-sca
 | **Aggregate mIoU** | **0.749080** |
 | Mean per-image Boundary F1 | 0.519177 |
 | Quality score Q | 0.680109 |
-| CPU time per image, TCPU | **17.3210 ms** |
-| Checkpoint size, Sdisk | **767,807 bytes (0.7322 MiB)** |
+| CPU time per image, T_CPU | **17.3210 ms** |
+| Checkpoint size, S_disk | **767,807 bytes (0.7322 MiB)** |
 | **Compute Efficiency Score (CES)** | **0.620539** |
 
 The measured CPU time is below the assignment limit of 50 ms per image. The checkpoint is also below the 4 MiB storage budget. The official score is therefore non-zero under the assignment's CES formula.
@@ -58,7 +74,7 @@ The personal-photo result is a small supplementary generalization study. It is n
 
 ## 2. Problem formulation
 
-The task is binary salient-object segmentation. For an input RGB photograph, the network predicts a foreground probability for each pixel. Thresholding the probabilities produces a binary mask:
+The task is binary salient-object segmentation. For an input RGB photograph, the network predicts a foreground probability for each pixel. Thresholding the probabilities at 0.5 produces a binary mask:
 
 - Foreground / salient object: 1 (saved as 255 in PNG output).
 - Background: 0 (saved as 0 in PNG output).
@@ -73,9 +89,9 @@ The principal design question is not only whether the network can segment an obj
 
 ### 3.1 DUTS
 
-The official dataset layout expected by the code is:
+The dataset layout expected by the code is:
 
-~~~text
+```text
 data/
 ├── DUTS-TR/
 │   ├── DUTS-TR-Image/
@@ -83,7 +99,7 @@ data/
 └── DUTS-TE/
     ├── DUTS-TE-Image/
     └── DUTS-TE-Mask/
-~~~
+```
 
 The experiment uses the standard DUTS split sizes:
 
@@ -98,14 +114,14 @@ The validation subset is 10% of DUTS-TR. The code creates a deterministic, foreg
 
 DUTS-TE is not loaded by the training loop and is not used for gradient updates or the saved validation checkpoint-selection calculation.
 
-**Benchmark-integrity note:** During the broader iterative development of this project, DUTS-TE results were inspected during comparisons between candidate approaches. Therefore, although DUTS-TE was not used for training or gradient-based checkpoint selection, it should not be described as a completely untouched blind test set. The reported score is the final run under the documented evaluation protocol, with this development-history limitation disclosed.
+> **Benchmark-integrity note:** During the broader iterative development of this project, DUTS-TE results were inspected during comparisons between candidate approaches. Therefore, although DUTS-TE was not used for training or gradient-based checkpoint selection, it should not be described as a completely untouched blind test set. The reported score is the final run under the documented evaluation protocol, with this development-history limitation disclosed.
 
 ### 3.2 Image and mask preprocessing
 
 The project uses explicit interpolation and thresholding rules:
 
-1. Photographs are resized to 256 × 256 with OpenCV INTER_AREA interpolation for the assignment's official input and metric representation.
-2. Ground-truth masks are resized with INTER_NEAREST so that interpolation does not create new boundary labels.
+1. Photographs are resized to 256 × 256 with OpenCV `INTER_AREA` interpolation for the assignment's official input and metric representation.
+2. Ground-truth masks are resized with `INTER_NEAREST` so that interpolation does not create new boundary labels.
 3. A mask pixel is foreground when its grayscale value is at least 128; otherwise it is background.
 4. Training tensors are RGB, floating-point, and normalized to [0, 1].
 5. The final network's working resolution is 128 × 128. The official evaluator starts with a 256 × 256 image already in memory, performs the 256-to-128 conversion inside the timed function, and returns a 256 × 256 binary prediction.
@@ -127,7 +143,7 @@ Masks use nearest-neighbour interpolation during geometric transforms. Newly exp
 
 ## 4. Network architecture
 
-The final network is implemented in **models/segmentation_cnn.py**. It is a three-level residual U-Net with a multi-scale context block at its bottleneck and two auxiliary decoder heads used during training.
+The final network is implemented in `models/segmentation_cnn.py`. It is a three-level residual U-Net with a multi-scale context block at its bottleneck and two auxiliary decoder heads used during training.
 
 ### 4.1 Encoder
 
@@ -164,7 +180,7 @@ The final model contains **175,971 trainable parameters**. The saved best checkp
 
 ## 5. Training methodology
 
-The final experiment configuration is stored in **final/unet_128_multiscale_v1/config.json**.
+The final experiment configuration is stored in `final/unet_128_multiscale_v1/config.json`.
 
 | Hyperparameter | Value |
 |---|---:|
@@ -186,17 +202,15 @@ The final experiment configuration is stored in **final/unet_128_multiscale_v1/c
 
 Each supervised output uses a 50:50 combination of binary cross-entropy with logits and soft Dice loss:
 
-$$
-L_{\mathrm{base}} = 0.5 L_{\mathrm{BCE}} + 0.5 L_{\mathrm{Dice}}
-$$
+```text
+L_base = 0.5 * L_BCE + 0.5 * L_Dice
+```
 
 The deep-supervision objective combines the main and auxiliary decoder losses:
 
-$$
-L = 0.60 L_{\mathrm{main}}
-  + 0.15 L_{\mathrm{quarter}}
-  + 0.25 L_{\mathrm{half}}
-$$
+```text
+L = 0.60 * L_main + 0.15 * L_quarter + 0.25 * L_half
+```
 
 The weights sum to one. The main output receives the largest contribution, while the auxiliary heads encourage intermediate decoder representations to remain useful for segmentation.
 
@@ -210,10 +224,9 @@ The learning rate is linearly warmed up for the first three epochs and then deca
 
 The best checkpoint is selected using validation quality:
 
-$$
-Q_{\mathrm{val}} = 0.70\,mIoU_{\mathrm{val}}
-                 + 0.30\,BF1_{\mathrm{val}}
-$$
+```text
+Q_val = 0.70 * mIoU_val + 0.30 * BF1_val
+```
 
 The best recorded checkpoint occurred at epoch 56 of 60.
 
@@ -228,14 +241,14 @@ The best recorded checkpoint occurred at epoch 56 of 60.
 | Boundary F1 | 0.785402 |
 | Validation quality Q | 0.852926 |
 
-**Resolution qualification:** the training/validation dataset loader uses 128 × 128 tensors, so the values above are the 128-resolution training-loop checkpoint-selection diagnostics. The official DUTS-TE result below is separately computed at 256 × 256 using the assignment evaluation path. These validation and test values should not be treated as a strictly resolution-matched comparison.
+> **Resolution qualification:** the training/validation dataset loader uses 128 × 128 tensors, so the values above are the 128-resolution training-loop checkpoint-selection diagnostics. The official DUTS-TE result below is separately computed at 256 × 256 using the assignment evaluation path. These validation and test values should not be treated as a strictly resolution-matched comparison.
 
 Training curves and validation history are retained in the final experiment directory:
 
-- Training and validation loss: **final/unet_128_multiscale_v1/loss_curve.png**
-- Validation metrics: **final/unet_128_multiscale_v1/validation_metrics.png**
-- Configuration: **final/unet_128_multiscale_v1/config.json**
-- Per-epoch history: **final/unet_128_multiscale_v1/history.csv** and **history.json**
+- Training and validation loss: `final/unet_128_multiscale_v1/loss_curve.png`
+- Validation metrics: `final/unet_128_multiscale_v1/validation_metrics.png`
+- Configuration: `final/unet_128_multiscale_v1/config.json`
+- Per-epoch history: `final/unet_128_multiscale_v1/history.csv` and `history.json`
 
 ![Training and validation loss](final/unet_128_multiscale_v1/loss_curve.png)
 
@@ -245,22 +258,22 @@ Training curves and validation history are retained in the final experiment dire
 
 ## 6. Evaluation protocol and metrics
 
-The official evaluation implementation is **src/evaluate.py**. It runs on CPU with one PyTorch thread and one OpenCV thread. The evaluation warms up the model once before timing.
+The official evaluation implementation is `src/evaluate.py`. It runs on CPU with one PyTorch thread and one OpenCV thread. The evaluation warms up the model once before timing.
 
 ### 6.1 Timed inference path
 
 For each official DUTS-TE sample:
 
 1. Load the source photograph and ground-truth mask before timing.
-2. Resize the photograph to 256 × 256 and the mask to 256 × 256. This original-file I/O and resize are outside TCPU.
+2. Resize the photograph to 256 × 256 and the mask to 256 × 256. This original-file I/O and resize are outside T_CPU.
 3. Start CPU process-time measurement with the 256 × 256 BGR image already in memory.
-4. Resize the image to 128 × 128 using INTER_AREA.
+4. Resize the image to 128 × 128 using `INTER_AREA`.
 5. Convert BGR to RGB, normalize to [0, 1], construct the tensor, and run the CNN.
 6. Bilinearly upsample the logits to 256 × 256.
 7. Apply sigmoid and the 0.5 threshold, then materialize the 256 × 256 binary prediction on CPU.
 8. Stop timing.
 
-Thus, TCPU includes the resize from 256 to 128, colour conversion, normalization, tensor creation, model forward pass, upsampling, sigmoid, thresholding, and output conversion. It excludes checkpoint loading, original file I/O, original-photo resizing to 256 × 256, metric computation, and visualization writing.
+Thus, T_CPU includes the resize from 256 to 128, colour conversion, normalization, tensor creation, model forward pass, upsampling, sigmoid, thresholding, and output conversion. It excludes checkpoint loading, original file I/O, original-photo resizing to 256 × 256, metric computation, and visualization writing.
 
 The official evaluator measures one timed prediction per DUTS-TE image and averages over all 5,019 images.
 
@@ -268,29 +281,23 @@ The official evaluator measures one timed prediction per DUTS-TE image and avera
 
 The evaluator accumulates one dataset-level confusion matrix:
 
-$$
-C =
-\begin{bmatrix}
-TN & FP \\
-FN & TP
-\end{bmatrix}
-$$
+| | Predicted background | Predicted foreground |
+|---|---:|---:|
+| **Ground-truth background** | TN | FP |
+| **Ground-truth foreground** | FN | TP |
 
 Foreground and background IoU are:
 
-$$
-IoU_{\mathrm{fg}} = \frac{TP}{TP+FP+FN}
-$$
-
-$$
-IoU_{\mathrm{bg}} = \frac{TN}{TN+FP+FN}
-$$
+```text
+IoU_fg = TP / (TP + FP + FN)
+IoU_bg = TN / (TN + FP + FN)
+```
 
 The reported dataset-level mean IoU is:
 
-$$
-mIoU = \frac{IoU_{\mathrm{fg}}+IoU_{\mathrm{bg}}}{2}
-$$
+```text
+mIoU = (IoU_fg + IoU_bg) / 2
+```
 
 This is computed from the aggregate confusion matrix, not by averaging the per-image IoU values.
 
@@ -306,27 +313,31 @@ Boundary F1 complements mIoU: region overlap can remain high even when object co
 
 The quality component is:
 
-$$
-Q = 0.70\,mIoU + 0.30\,BF1
-$$
+```text
+Q = 0.70 * mIoU + 0.30 * BF1
+```
 
-The assignment budgets are 50 ms per image and 4 MiB for the saved model file. With TCPU in milliseconds and Sdisk in bytes:
+The assignment budgets are 50 ms per image and 4 MiB (4,194,304 bytes) for the saved model file. With T_CPU in milliseconds and S_disk in bytes:
 
-$$
-CES =
-Q\left(
-1 - 0.20\frac{TCPU}{50}
-  - 0.10\min\left(1,\frac{Sdisk}{4,194,304}\right)
-\right)
-$$
+```text
+CES = Q * (1 - 0.20 * (T_CPU / 50) - 0.10 * min(1, S_disk / 4194304))
+```
 
-CES is set to zero if TCPU exceeds 50 ms. The size term uses the exact serialized checkpoint file size, without compression.
+CES is set to zero if T_CPU exceeds 50 ms. The size term uses the exact serialized checkpoint file size, without compression.
+
+Sanity check with the official numbers:
+
+```text
+Q   = 0.70 * 0.749080 + 0.30 * 0.519177 = 0.680109
+CES = 0.680109 * (1 - 0.20 * (17.3210 / 50) - 0.10 * (767807 / 4194304))
+    = 0.620539
+```
 
 ---
 
 ## 7. Official DUTS-TE results
 
-The final official result is stored in **final/unet_128_multiscale_v1/results_duts-te_256.json**.
+The final official result is stored in `final/unet_128_multiscale_v1/results_duts-te_256.json`.
 
 | Metric | DUTS-TE result |
 |---|---:|
@@ -337,12 +348,12 @@ The final official result is stored in **final/unet_128_multiscale_v1/results_du
 | Boundary F1 | 0.519177 |
 | **Quality Q** | **0.680109** |
 | Total CPU process time | 86.9341 s |
-| **Average TCPU** | **17.3210 ms/image** |
+| **Average T_CPU** | **17.3210 ms/image** |
 | **Checkpoint size** | **767,807 bytes** |
 | Checkpoint size | 0.7322 MiB |
 | **CES** | **0.620539** |
 
-Official aggregate confusion matrix:
+Official aggregate confusion matrix (pixel counts):
 
 | | Predicted background | Predicted foreground |
 |---|---:|---:|
@@ -360,7 +371,7 @@ Official aggregate confusion matrix:
 
 Background IoU (0.910646) is substantially higher than foreground IoU (0.587513). The model is generally more reliable at rejecting background pixels than at recovering every foreground pixel. The foreground IoU and Boundary F1 indicate that missed object regions and imprecise contours remain important limitations.
 
-The best training-loop validation mIoU was 0.881865 and the official DUTS-TE mIoU was 0.749080. The validation quality was 0.852926, whereas the official test quality was 0.680109. This is a sizeable generalization gap. It suggests that the validation subset was easier or otherwise not fully representative of the test distribution, and that strong validation performance did not translate one-to-one to the test set. The resolution qualification in Section 5.3 also means the validation and test figures are not a perfectly matched comparison.
+The best training-loop validation mIoU was 0.881865 and the official DUTS-TE mIoU was 0.749080. The validation quality was 0.852926, whereas the official test quality was 0.680109. This is a sizeable generalization gap. It suggests that the validation subset was easier or otherwise not fully representative of the test distribution, and that strong validation performance did not translate one-to-one to the test set. The resolution qualification in [Section 5.3](#53-checkpoint-selection) also means the validation and test figures are not a perfectly matched comparison.
 
 ---
 
@@ -397,7 +408,7 @@ The aggregate mIoU is calculated from the combined confusion matrix. Mean per-im
 
 ### 8.3 Per-image results
 
-| ID | Target | Foreground IoU | Background IoU | mIoU | Boundary F1 | Mean CPU ms |
+| ID | Target | Foreground IoU | Background IoU | mIoU | Boundary F1 | Mean CPU (ms) |
 |---|---|---:|---:|---:|---:|---:|
 | 1 | Occluded chair scene | 0.866912 | 0.963910 | 0.915411 | 0.719701 | 16.6344 |
 | 2 | Suitcase | 0.468532 | 0.689050 | 0.578791 | 0.297589 | 16.5237 |
@@ -420,7 +431,7 @@ The captured evaluator performs one warm-up prediction, then 20 timed prediction
 | Minimum | 14.6265 ms |
 | Maximum | 21.5993 ms |
 
-These timings are supplementary measurements on seven repeated images. They are not the official TCPU, which is the average over all 5,019 DUTS-TE images.
+These timings are supplementary measurements on seven repeated images. They are not the official T_CPU, which is the average over all 5,019 DUTS-TE images.
 
 ### 8.5 Failure analysis
 
@@ -454,7 +465,7 @@ The personal-photo experiment is a small, manually annotated stress test. Seven 
 
 The two evaluation sets serve different purposes:
 
-- **DUTS-TE** provides the official dataset-level quality and efficiency result. Its 5,019 images are used for the reported mIoU, Boundary F1, TCPU, model size, Q, and CES.
+- **DUTS-TE** provides the official dataset-level quality and efficiency result. Its 5,019 images are used for the reported mIoU, Boundary F1, T_CPU, model size, Q, and CES.
 - **Captured photographs** provide a small supplementary check on personally selected real-world scenes. They expose concrete behaviours on occlusion, clutter, multiple similar objects, and fine boundaries.
 
 The captured-photo aggregate mIoU (0.819325) is higher than the DUTS-TE mIoU (0.749080), but this does not mean the custom photographs are an easier or more representative benchmark in a statistically controlled sense. There are only seven images, target definitions vary, and the scene distribution is selected rather than sampled. The per-image results and failure visualizations are more informative than treating the two aggregate values as a direct ranking.
@@ -467,23 +478,23 @@ Across both evaluations, the model is compact and comfortably within the CPU and
 
 ### 10.1 Environment setup
 
-Python 3.11 or later is required. The project uses uv for dependency management.
+Python 3.11 or later is required. The project uses [uv](https://github.com/astral-sh/uv) for dependency management.
 
-~~~bash
+```bash
 uv sync
-~~~
+```
 
 The implementation uses PyTorch, NumPy, OpenCV, Matplotlib, and tqdm. The project does not depend on pretrained torchvision segmentation models.
 
 ### 10.2 Dataset placement
 
-Place DUTS-TR and DUTS-TE under the data directory using the layout in Section 3.1. Each image must have a matching PNG mask with the same filename stem.
+Place DUTS-TR and DUTS-TE under the `data/` directory using the layout in [Section 3.1](#31-duts). Each image must have a matching PNG mask with the same filename stem.
 
 ### 10.3 Training command
 
 The following command reproduces the recorded core training configuration in a new experiment directory. It does not overwrite the committed final checkpoint.
 
-~~~bash
+```bash
 uv run python -m src.train \
   --data data \
   --epochs 60 \
@@ -497,52 +508,52 @@ uv run python -m src.train \
   --seed 42 \
   --image-size 128 \
   --output-dir experiments/reproduction_run
-~~~
+```
 
 ### 10.4 Official DUTS-TE evaluation
 
-~~~bash
+```bash
 uv run python -m src.evaluate \
   --data data \
   --split DUTS-TE \
   --subset all \
   --checkpoint final/unet_128_multiscale_v1/model_best.pt \
   --output-dir final/unet_128_multiscale_v1
-~~~
+```
 
 This evaluates the full 5,019-image DUTS-TE split and writes the 256 × 256 result JSON and segmentation examples into the final experiment directory.
 
 ### 10.5 Captured-photo evaluation
 
-~~~bash
+```bash
 uv run python -m src.evaluate_captured \
   --checkpoint final/unet_128_multiscale_v1/model_best.pt
-~~~
+```
 
-This evaluates all paired images in captured/images_256 and captured/masks_256_binary, runs 20 timed predictions per image after a warm-up, and overwrites:
+This evaluates all paired images in `captured/images_256` and `captured/masks_256_binary`, runs 20 timed predictions per image after a warm-up, and overwrites:
 
-- captured/evaluation/results_captured.json
-- captured/evaluation/predictions/
-- captured/evaluation/segmentation_examples_256.png
+- `captured/evaluation/results_captured.json`
+- `captured/evaluation/predictions/`
+- `captured/evaluation/segmentation_examples_256.png`
 
 ### 10.6 Single-image inference
 
-~~~bash
+```bash
 uv run python predict.py \
   --image path/to/photo.jpg \
   --out path/to/predicted_mask.png \
   --checkpoint final/unet_128_multiscale_v1/model_best.pt
-~~~
+```
 
-The prediction is saved as a 256 × 256 binary PNG. The CLI prints the assignment's two timing/size lines: T CPU ms and S disk bytes.
+The prediction is saved as a 256 × 256 binary PNG. The CLI prints the assignment's two timing/size lines: `T CPU ms` and `S disk bytes`.
 
 ### 10.7 Hardware and timing reproducibility
 
 The committed official result records CPU-only inference with one PyTorch thread and one OpenCV thread. The training configuration records CUDA and mixed precision. The result JSON does not contain the exact CPU model string; record it separately on the machine used for the final submission, for example with:
 
-~~~bash
+```bash
 lscpu | grep -E "Model name|CPU\(s\)"
-~~~
+```
 
 CPU timing varies with processor, operating-system load, power state, and software versions. Re-run the official evaluator on the target machine when reproducing the timing result.
 
@@ -550,7 +561,7 @@ CPU timing varies with processor, operating-system load, power state, and softwa
 
 ## 11. Repository layout
 
-~~~text
+```text
 .
 ├── captured/
 │   ├── original/                     # Original phone photographs
@@ -559,13 +570,13 @@ CPU timing varies with processor, operating-system load, power state, and softwa
 │   ├── masks_256_binary/             # Binary 0/255 ground-truth masks
 │   └── evaluation/
 │       ├── predictions/              # Model predictions
-│       ├── results_captured.json      # Custom-set metrics and timing
+│       ├── results_captured.json     # Custom-set metrics and timing
 │       └── segmentation_examples_256.png
 ├── final/
 │   └── unet_128_multiscale_v1/
-│       ├── model_best.pt              # Selected trained checkpoint
-│       ├── config.json                # Experiment configuration
-│       ├── best_metrics.json          # Best validation metrics
+│       ├── model_best.pt             # Selected trained checkpoint
+│       ├── config.json               # Experiment configuration
+│       ├── best_metrics.json         # Best validation metrics
 │       ├── history.csv
 │       ├── history.json
 │       ├── results_duts-te_256.json  # Official 256x256 test result
@@ -586,9 +597,9 @@ CPU timing varies with processor, operating-system load, power state, and softwa
 ├── predict.py
 ├── pyproject.toml
 └── README.md
-~~~
+```
 
-Large raw data and generated experiment outputs may be excluded by .gitignore in a fresh clone. The committed final experiment and captured evaluation artifacts are included in this repository snapshot.
+Large raw data and generated experiment outputs may be excluded by `.gitignore` in a fresh clone. The committed final experiment and captured evaluation artifacts are included in this repository snapshot.
 
 ---
 
