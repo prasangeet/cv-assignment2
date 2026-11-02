@@ -10,6 +10,9 @@ wheels/
 .venv
 .env
 
-data/
+data/downloads
+data/DUTS-TE
+data/DUTS-TR
+
 checkpoints/
 experiments/
