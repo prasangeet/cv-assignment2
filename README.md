@@ -541,7 +541,7 @@ The prediction is saved as a 256 × 256 binary PNG. The CLI prints the assignmen
 The committed official result records CPU-only inference with one PyTorch thread and one OpenCV thread. The training configuration records CUDA and mixed precision. The result JSON does not contain the exact CPU model string; record it separately on the machine used for the final submission, for example with:
 
 ~~~bash
-lscpu | grep -E "Model name|CPU\\(s\\)"
+lscpu | grep -E "Model name|CPU\(s\)"
 ~~~
 
 CPU timing varies with processor, operating-system load, power state, and software versions. Re-run the official evaluator on the target machine when reproducing the timing result.
