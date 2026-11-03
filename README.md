@@ -118,15 +118,9 @@ DUTS-TE is not loaded by the training loop and is not used for gradient updates 
 
 ### 3.2 Image and mask preprocessing
 
-The project uses explicit interpolation and thresholding rules:
+Training and validation use the `DUTSDataset` loader, which resizes each original photograph directly to 128 × 128 with OpenCV `INTER_AREA` and each mask directly to 128 × 128 with `INTER_NEAREST`. A mask pixel is foreground when its grayscale value is at least 128; otherwise it is background. Training tensors are converted from BGR to RGB, represented as floating-point values, and normalized to [0, 1].
 
-1. Photographs are resized to 256 × 256 with OpenCV `INTER_AREA` interpolation for the assignment's official input and metric representation.
-2. Ground-truth masks are resized with `INTER_NEAREST` so that interpolation does not create new boundary labels.
-3. A mask pixel is foreground when its grayscale value is at least 128; otherwise it is background.
-4. Training tensors are RGB, floating-point, and normalized to [0, 1].
-5. The final network's working resolution is 128 × 128. The official evaluator starts with a 256 × 256 image already in memory, performs the 256-to-128 conversion inside the timed function, and returns a 256 × 256 binary prediction.
-
-The assignment intentionally uses a fixed square representation. Original aspect ratios are not preserved during this resize.
+The official DUTS-TE evaluator follows a separate 256 × 256 path. It first resizes each source photograph and ground-truth mask to 256 × 256 outside the timed region. Inside the timed function, the photograph is downsampled to the model's 128 × 128 working resolution; the predicted logits are then upsampled and thresholded at 256 × 256. Official DUTS-TE metrics are computed at 256 × 256, whereas training-loop validation diagnostics are computed at 128 × 128. Original aspect ratios are not preserved by these fixed square resizes.
 
 ### 3.3 Training-only augmentation
 
@@ -337,7 +331,7 @@ CES = 0.680109 * (1 - 0.20 * (17.3210 / 50) - 0.10 * (767807 / 4194304))
 
 ## 7. Official DUTS-TE results
 
-The final official result is stored in `final/unet_128_multiscale_v1/results_duts-te_256.json`.
+The final official result is stored in `final/unet_128_multiscale_v1/results_duts-te_256.json`. An earlier 128 × 128 evaluation is retained separately as `final/unet_128_multiscale_v1/results_duts-te_128_legacy.json` for historical reference; it is not the final reported benchmark result.
 
 | Metric | DUTS-TE result |
 |---|---:|
@@ -490,6 +484,12 @@ The implementation uses PyTorch, NumPy, OpenCV, Matplotlib, and tqdm. The projec
 
 Place DUTS-TR and DUTS-TE under the `data/` directory using the layout in [Section 3.1](#31-duts). Each image must have a matching PNG mask with the same filename stem.
 
+The repository also includes a downloader that stores the ZIP archives in `data/downloads/` and extracts the datasets into the expected `data/DUTS-TR/` and `data/DUTS-TE/` directories. It requires `wget` to be installed:
+
+```bash
+uv run python data/download_dataset.py
+```
+
 ### 10.3 Training command
 
 The following command reproduces the recorded core training configuration in a new experiment directory. It does not overwrite the committed final checkpoint.
@@ -549,7 +549,7 @@ The prediction is saved as a 256 × 256 binary PNG. The CLI prints the assignmen
 
 ### 10.7 Hardware and timing reproducibility
 
-The committed official result records CPU-only inference with one PyTorch thread and one OpenCV thread. The training configuration records CUDA and mixed precision. The result JSON does not contain the exact CPU model string; record it separately on the machine used for the final submission, for example with:
+The committed official result records CPU-only inference with one PyTorch thread and one OpenCV thread. The training configuration records CUDA and mixed precision. The result JSON does not contain the CPU model identifier; the report records it separately, so verify that identifier on the same machine used for the timing run before submission. To inspect the processor on Linux, run:
 
 ```bash
 lscpu | grep -E "Model name|CPU\(s\)"
@@ -572,34 +572,47 @@ CPU timing varies with processor, operating-system load, power state, and softwa
 │       ├── predictions/              # Model predictions
 │       ├── results_captured.json     # Custom-set metrics and timing
 │       └── segmentation_examples_256.png
+├── data/
+│   └── download_dataset.py           # Downloads and extracts DUTS
 ├── final/
 │   └── unet_128_multiscale_v1/
 │       ├── model_best.pt             # Selected trained checkpoint
+│       ├── model_latest.pt
+│       ├── training_state.pt         # Optimizer and training resume state
 │       ├── config.json               # Experiment configuration
 │       ├── best_metrics.json         # Best validation metrics
+│       ├── summary.json
+│       ├── split_indices.json
 │       ├── history.csv
 │       ├── history.json
 │       ├── results_duts-te_256.json  # Official 256x256 test result
+│       ├── results_duts-te_128_legacy.json # Earlier 128x128 result; historical only
 │       ├── loss_curve.png
 │       ├── validation_metrics.png
 │       └── segmentation_examples_256.png
 ├── models/
 │   └── segmentation_cnn.py
+├── report/
+│   ├── figs/                         # Figures used by the report
+│   ├── make_figs.py                  # Regenerates report figures
+│   ├── report.pdf
+│   └── report.tex
 ├── src/
+│   ├── benchmark_latency.py
 │   ├── dataset.py
 │   ├── evaluate.py
 │   ├── evaluate_captured.py
 │   ├── metrics.py
 │   ├── prepare_captured.py
-│   ├── splits.py
 │   └── train.py
 ├── tests/
 ├── predict.py
 ├── pyproject.toml
+├── uv.lock
 └── README.md
 ```
 
-Large raw data and generated experiment outputs may be excluded by `.gitignore` in a fresh clone. The committed final experiment and captured evaluation artifacts are included in this repository snapshot.
+The original DUTS datasets and downloaded archives are not committed. The final checkpoint, training artifacts, report figures/PDF, and captured-photo evaluation artifacts are included in the repository.
 
 ---
 
