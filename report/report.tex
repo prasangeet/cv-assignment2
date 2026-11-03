@@ -33,7 +33,7 @@
 \definecolor{rule}{HTML}{C9D3DE}
 
 % ---------- fill this in before submission ----------
-\newcommand{\cpumodel}{\textbf{\textcolor{coral}{[CPU model: 11th Gen Intel(R) Core(TM) i5-11400H @ 2.70GHz]}}}
+\newcommand{\cpumodel}{\texttt{11th Gen Intel(R) Core(TM) i5-11400H @ 2.70 GHz}}
 
 % ---------- typography ----------
 \setlength{\parindent}{0pt}
@@ -89,7 +89,7 @@
 \vspace{0.6em}
 
 \noindent{\sffamily\bfseries\color{navy}Abstract.}\;
-We build a binary salient-object segmenter that has to label every pixel of a $256{\times}256$ photograph within 50\,ms of single-thread CPU time and a 4\,MiB parameter file. Our model is a three-level residual U-Net with a dilated depthwise multi-scale context block at the bottleneck and deep supervision, trained from scratch on DUTS-TR at $128{\times}128$ working resolution. On the full DUTS-TE benchmark (5{,}019 images) it reaches mIoU\,=\,0.7491, Boundary F1\,=\,0.5192 and $Q$\,=\,0.6801 at $\Tcpu$\,=\,17.32\,ms with a 767{,}807-byte checkpoint, giving CES\,=\,0.6205. On seven hand-annotated photographs from our own surroundings it reaches mIoU\,=\,0.8193. The model is cheap enough that the remaining weakness is not speed but contour accuracy and clutter handling, which we analyse through three failure cases.
+We build a binary salient-object segmenter that has to label every pixel of a $256{\times}256$ photograph within 50\,ms of single-thread CPU time and a 4\,MiB parameter file. Our model is a three-level residual U-Net with a dilated depthwise multi-scale context block at the bottleneck and deep supervision, trained from scratch on DUTS-TR at $128{\times}128$ working resolution. On the full DUTS-TE benchmark (5{,}019 images) it reaches mIoU\,=\,0.7491, Boundary F1\,=\,0.5192 and $Q$\,=\,0.6801 at $\Tcpu$\,=\,17.32\,ms with a 767{,}807-byte checkpoint, giving CES\,=\,0.6205. On eleven hand-annotated photographs from our surroundings it reaches aggregate mIoU\,=\,0.8484 and quality $Q$\,=\,0.7732. The custom set is a small supplementary stress test, not a substitute for the official benchmark; its difficult scenes expose remaining weaknesses in contour accuracy and clutter handling.
 \vspace{0.8em}
 }]
 
@@ -118,7 +118,7 @@ DUTS-TR (10{,}553 images) is split into a training and a validation part; DUTS-T
 DUTS-TR (train) & 9{,}498 & gradient updates\\
 DUTS-TR (val)   & 1{,}055 & monitoring, checkpoint choice\\
 DUTS-TE         & 5{,}019 & final benchmark\\
-Own photos      & 7 & test only\\
+Own photos      & 11 & supplementary test only\\
 \bottomrule
 \end{tabular}
 \caption{Dataset splits.}
@@ -127,7 +127,7 @@ Own photos      & 7 & test only\\
 \textbf{Test-set hygiene.} DUTS-TE is never loaded by the training loop, never contributes gradients and is not used to pick the saved checkpoint. In full disclosure, however, DUTS-TE scores were looked at while comparing candidate designs during development, so it is not a strictly blind set. The reported figure is the single final run under the protocol below.
 
 \subsection{Preprocessing and augmentation}
-Following the assignment, every photo is resized to $256{\times}256$ with \texttt{cv2.INTER\_AREA} and every mask with \texttt{cv2.INTER\_NEAREST}; a mask pixel is object if its value is at least 128. All metrics are computed on these $256{\times}256$ masks. Inputs are RGB floats in $[0,1]$. During training only, image and mask receive the same random horizontal flip ($p{=}0.5$), vertical flip ($p{=}0.10$) and isotropic rescaling by $0.9$--$1.1$ ($p{=}0.5$, new border pixels are background); the image alone additionally gets brightness and per-channel gain jitter with clipping.
+Training and validation use the \texttt{DUTSDataset} loader, which resizes each original DUTS-TR photograph directly to $128{\times}128$ with \texttt{cv2.INTER\_AREA} and each mask to $128{\times}128$ with \texttt{cv2.INTER\_NEAREST}. A mask pixel is foreground when its grayscale value is at least 128. The official DUTS-TE evaluator follows a separate path: it prepares the photograph and mask at $256{\times}256$ outside the timed region, downsamples the photograph to the model's $128{\times}128$ working resolution inside the timed region, then upsamples logits and computes metrics at $256{\times}256$. Captured photographs are also prepared at $256{\times}256$ and paired with manually annotated masks, which are thresholded at 128 to make binary targets. Inputs are converted from BGR to RGB and normalized to $[0,1]$. During DUTS-TR training only, image and mask receive the same random horizontal flip ($p{=}0.5$), vertical flip ($p{=}0.10$) and isotropic rescaling by $0.9$--$1.1$ ($p{=}0.5$, new border pixels are background); the image alone additionally gets brightness and per-channel gain jitter with clipping.
 
 % ============================================================
 \section{Method}
@@ -216,14 +216,14 @@ File I/O, resizing the original photograph to $256{\times}256$, loading the chec
 \end{itemize}
 $\Tcpu$ is the total \texttt{time.process\_time()} over all 5{,}019 DUTS-TE images divided by 5{,}019. The storage side is equally simple: the saved file is a plain, uncompressed PyTorch state dict of 767{,}807 bytes (0.7322\,MiB, 18.3\% of the 4\,MiB budget), all learned values live in it, and none are hard-coded.
 
-\textbf{Evaluation code.} Metrics are written from scratch in NumPy. mIoU accumulates one $2{\times}2$ confusion matrix over the set. For Boundary F1, boundary pixels are found with four shifted copies of the padded mask (pixels outside the image count as background), and the $5{\times}5$ tolerance check is a logical OR over 25 shifted slices of the boundary map, so no per-pixel Python loops or prohibited morphology calls are needed.
+\textbf{Evaluation code.} The official \texttt{src/evaluate.py} computes the four-connected foreground boundary and the $5{\times}5$ tolerance neighbourhood with OpenCV \texttt{filter2D}, using constant-zero borders so pixels outside the image count as background. The separate helper in \texttt{src/metrics.py} implements the corresponding boundary-neighbourhood operations with NumPy slicing. In both cases, mIoU is derived from one aggregate $2{\times}2$ confusion matrix and Boundary F1 is averaged over images.
 
 % ============================================================
 \section{Results}
 \begin{figure*}[!t]
 \centering
 \includegraphics[width=\textwidth]{figs/captured.pdf}
-\caption{Own photographs: input, ground-truth overlay (teal) and predicted overlay (coral), with per-image mIoU. Seven photos, all kept in the evaluation, including the difficult ones.}
+\caption{Own photographs: input, ground-truth overlay (teal) and predicted overlay (coral), with per-image mIoU. All eleven paired photographs are shown, including difficult examples.}
 \label{fig:captured}
 \end{figure*}
 
@@ -239,10 +239,10 @@ $\Tcpu$ is the total \texttt{time.process\_time()} over all 5{,}019 DUTS-TE imag
 Validation (DUTS-TR split) & 1{,}055 & $128^2$\textsuperscript{a} & 0.8819 & 0.7854 & 0.8529 & -- & 767{,}807 & --\\
 \rowcolor{paper}
 \textbf{DUTS-TE (official)} & 5{,}019 & $256^2$ & \textbf{0.7491} & \textbf{0.5192} & \textbf{0.6801} & \textbf{17.32} & \textbf{767{,}807} & \textbf{0.6205}\\
-Own photos & 7 & $256^2$ & 0.8193 & 0.5629 & 0.7424 & 17.06\textsuperscript{b} & 767{,}807 & --\\
+Own photos & 11 & $256^2$ & 0.8484 & 0.5978 & 0.7732 & 17.14\textsuperscript{b} & 767{,}807 & --\\
 \bottomrule
 \end{tabular}
-\caption{Main results. mIoU is computed from one aggregate confusion matrix; BF1 is the mean of per-image scores. \textsuperscript{a}Validation numbers come from the 128$\times$128 training loop and are therefore not resolution-matched with the $256{\times}256$ test numbers. \textsuperscript{b}Mean over 140 timed predictions (20 per photo after a warm-up); the official $\Tcpu$ is the DUTS-TE average. CES is reported only for DUTS-TE, the common benchmark.}
+\caption{Main results. mIoU is computed from one aggregate confusion matrix; BF1 is the mean of per-image scores. \textsuperscript{a}Validation numbers come from the 128$\times$128 training loop and are therefore not resolution-matched with the $256{\times}256$ test numbers. \textsuperscript{b}Mean over 220 timed predictions (20 per photograph after one warm-up); the official $\Tcpu$ is the DUTS-TE average. CES is reported only for DUTS-TE, the common benchmark.}
 \label{tab:main}
 \end{table*}
 
@@ -265,42 +265,50 @@ Background IoU (0.9106) is far higher than foreground IoU (0.5875): the aggregat
 
 
 \subsection{Own photographs}
-We photographed seven everyday objects and annotated them by hand on the $256{\times}256$ resized images (object $=255$, background $=0$). The set deliberately includes cluttered backgrounds, partial occlusion, a small object and a thin-structure case. Fig.~\ref{fig:captured} shows ground-truth and predicted masks as semi-transparent overlays and Table~\ref{tab:captured} gives per-image scores. These photographs were used only for testing.
+We retained eleven everyday photographs and annotated each target by hand on the $256{\times}256$ prepared image. The set includes a chair/clothes composite, a suitcase, two bicycles, a backpack, clogs, a controller, a mouse, a bird, a cat at a window, a kitten and a wristwatch. It deliberately includes clutter, occlusion, small foreground regions and thin structures. Fig.~\ref{fig:captured} shows the input, ground-truth and predicted overlays; Table~\ref{tab:captured} gives per-image scores. These photographs were used only for supplementary testing.
 
 
 \begin{table}[t]
 \centering\small
-\renewcommand{\arraystretch}{1.1}
-\begin{tabular}{@{}cl>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}>{\raggedleft\arraybackslash}p{1.0cm}@{}}
+\renewcommand{\arraystretch}{1.08}
+\begin{tabular}{@{}cl>{\raggedleft\arraybackslash}p{0.95cm}>{\raggedleft\arraybackslash}p{0.85cm}>{\raggedleft\arraybackslash}p{0.85cm}@{}}
 \toprule
-\textbf{ID} & \textbf{Object} & \textbf{IoU$_{\text{fg}}$} & \textbf{mIoU} & \textbf{BF1}\\
+\textbf{ID} & \textbf{Target} & \textbf{IoU$_{\text{fg}}$} & \textbf{mIoU} & \textbf{BF1}\\
 \midrule
-1 & Chair (occluded)  & 0.867 & 0.915 & 0.720\\
-2 & Suitcase          & 0.469 & 0.579 & 0.298\\
-3 & Two bicycles      & 0.747 & 0.809 & 0.445\\
-4 & Backpack          & 0.947 & 0.938 & 0.651\\
-5 & Pair of clogs     & 0.922 & 0.944 & 0.867\\
-6 & Game controller   & 0.924 & 0.950 & 0.795\\
-7 & Computer mouse    & 0.503 & 0.648 & 0.165\\
+1 & Chair / clothes & 0.867 & 0.915 & 0.720\\
+2 & Suitcase & 0.469 & 0.579 & 0.298\\
+3 & Two bicycles & 0.747 & 0.809 & 0.445\\
+4 & Backpack & 0.947 & 0.938 & 0.651\\
+5 & Pair of clogs & 0.922 & 0.944 & 0.867\\
+6 & Controller & 0.924 & 0.950 & 0.795\\
+7 & Computer mouse & 0.503 & 0.648 & 0.165\\
+8 & Bird & 0.930 & 0.960 & 0.867\\
+9 & Cat at window & 0.570 & 0.768 & 0.435\\
+10 & Kitten & 0.896 & 0.934 & 0.644\\
+11 & Wristwatch & 0.897 & 0.940 & 0.689\\
 \midrule
-\multicolumn{2}{@{}l}{Aggregate} & 0.759 & 0.819 & 0.563\textsuperscript{c}\\
+\multicolumn{2}{@{}l}{Aggregate} & 0.777 & 0.848 & 0.598\textsuperscript{c}\\
 \bottomrule
 \end{tabular}
-\caption{Per-photo results. \textsuperscript{c}Mean per-image BF1; mean per-image mIoU is 0.826.}
+\caption{Per-photo results. \textsuperscript{c}Mean per-image BF1; mean per-image mIoU is 0.853.}
 \label{tab:captured}
 \end{table}
 
-Timing over 140 predictions averaged 17.06\,ms (median 16.61\,ms, std.\ 1.83\,ms, min 14.63\,ms, max 21.60\,ms), consistent with the DUTS-TE figure.
+Timing over 220 predictions averaged 17.1447\,ms (median 16.6661\,ms, std.\ 1.5790\,ms, min 14.5730\,ms, max 22.2957\,ms). These repeated timings are supplementary and do not replace the official DUTS-TE timing.
 
 % ============================================================
 \section{Failure Analysis}
-\textbf{Suitcase (ID 2): occlusion and internal detail.} Foreground IoU is only 0.469 and BF1 0.298. The suitcase is partly covered by books and cloth, its surface is a uniform beige that resembles the floor and wall, and dark seams and wheels create strong internal edges. The prediction therefore contains holes inside the object and leaks into the cloth on top; with only a $128{\times}128$ working resolution and a 176K-parameter model there is little capacity to learn that a plain surface can still belong to the salient object.
+\textbf{Suitcase (ID 2): occlusion and internal detail.} This is the weakest region-overlap example (foreground IoU 0.469, mIoU 0.579, BF1 0.298). The suitcase is partly covered by nearby objects; dark handles, seams and internal details interrupt the otherwise coherent surface. The prediction misses portions of the object and contains internal holes.
 
-\textbf{Computer mouse (ID 7): small object, textured and glowing background.} BF1 is just 0.165 (mIoU 0.648). The mouse is small, dark and lit by coloured light, sitting on a high-contrast geometric mousepad next to a cable and a second object. The network labels part of the mousepad as foreground and puts the contour in the wrong place, so a boundary that is a few pixels off is penalised heavily by the $5{\times}5$ tolerance. A small object at $128{\times}128$ has only a handful of pixels per boundary segment, which also hurts.
+\textbf{Computer mouse (ID 7): small object and textured background.} This is the weakest boundary result (mIoU 0.648, BF1 0.165). The prediction spills into parts of the high-contrast mousepad and surrounding region. At a $128{\times}128$ working resolution, a small object has few pixels available to represent each contour segment, so small displacements affect Boundary F1 strongly.
 
-\textbf{Two bicycles (ID 3): thin structures.} Region overlap is respectable (mIoU 0.809), but BF1 drops to 0.445. Spokes, frames and the overlap between the two bikes are thin, and the prediction merges them into a smoother blob that fills the spaces between the wheels. This shows why region overlap alone is not enough to judge segmentation quality.
+\textbf{Two bicycles (ID 3): thin structures.} Region overlap is moderate (mIoU 0.809), but BF1 drops to 0.445. Spokes, frame members and the overlap between the two bicycles make boundary localization difficult; the prediction can merge thin parts into a smoother region.
 
-\textbf{Caveats.} Image 1 (chair under clothes) scores high because its target was defined as the visible chair-plus-clothes region; it should not be read as evidence that the model segments chairs in general. With seven photographs and hand-drawn masks, per-image scores carry annotation uncertainty, and none of these numbers is a statistically meaningful estimate of population performance.
+\textbf{Cat at the window (ID 9): small foreground region.} The hand-annotated foreground occupies only 5.99\% of the image. Foreground IoU is 0.570, mIoU is 0.768 and BF1 is 0.435. The cat is viewed against a window with strong bars and exterior texture, making the target contour less distinct.
+
+\textbf{New high-scoring examples.} The bird (ID 8) reaches mIoU 0.960 and BF1 0.867. The kitten (ID 10) reaches mIoU 0.934, and the wristwatch (ID 11) reaches mIoU 0.940. These examples demonstrate that the model can segment several compact, visually salient subjects well in this small set, but they do not establish class-level generalization.
+
+\textbf{Other examples and annotation caveats.} The backpack (ID 4), clogs (ID 5) and controller (ID 6) have high region scores (mIoU 0.938--0.950), though boundary agreement still varies. ID 1 scores highly under its manually defined chair-plus-clothes composite target; this is not evidence of isolated-chair segmentation. The bicycle target also groups two objects into one region. All eleven masks are manual annotations, so boundary placement and target definitions introduce uncertainty. The custom set is selected and too small for population-level claims.
 
 % ============================================================
 \section{Discussion and Future Work}
