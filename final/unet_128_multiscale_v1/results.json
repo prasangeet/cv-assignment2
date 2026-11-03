@@ -22,5 +22,5 @@
       9268651
     ]
   ],
-  "checkpoint": "experiments/unet_128_multiscale_v1/model_best.pt"
+  "checkpoint": "final/unet_128_multiscale_v1/model_best.pt"
 }
