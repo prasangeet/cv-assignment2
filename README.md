@@ -593,20 +593,10 @@ This writes the generated figures to `report/figs/` and the refreshed `report.pd
 
 ### 10.9 Hardware and timing reproducibility
 
-The committed official result records CPU-only inference with one PyTorch thread and one OpenCV thread. The training configuration records CUDA and mixed precision. The result JSON does not contain the CPU model identifier; the report records the processor used for the timing run separately. To inspect the processor on Linux, run:
+The committed official result records CPU-only inference with one PyTorch thread and one OpenCV thread. The training configuration records CUDA and mixed precision. The processor used for the reported timing run is documented in the report as 11th Gen Intel(R) Core(TM) i5-11400H @ 2.70 GHz; the result JSON does not embed this hardware identifier. To inspect the processor on Linux, run:
 
 ```bash
 lscpu | grep -E "Model name|CPU\\(s\\)"
-```
-
-CPU timing varies with processor, operating-system load, power state, and software versions. Re-run the official evaluator on the target machine when reproducing the timing result.
-
-### 10.9 Hardware and timing reproducibility
-
-The committed official result records CPU-only inference with one PyTorch thread and one OpenCV thread. The training configuration records CUDA and mixed precision. The result JSON does not contain the CPU model identifier; the report records it separately, so verify that identifier on the same machine used for the timing run before submission. To inspect the processor on Linux, run:
-
-```bash
-lscpu | grep -E "Model name|CPU\(s\)"
 ```
 
 CPU timing varies with processor, operating-system load, power state, and software versions. Re-run the official evaluator on the target machine when reproducing the timing result.
