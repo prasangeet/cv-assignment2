@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Captured mask review</title>
+<style>
+:root { color-scheme: light; font-family: system-ui, sans-serif; }
+body { margin: 24px; color: #202124; background: #f5f6f8; }
+h1 { margin-bottom: 6px; }
+.intro { color: #555; margin-top: 0; }
+.sample { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin: 18px 0; }
+.sample h2 { margin: 0 0 12px; font-size: 1.1rem; }
+.sample small { color: #666; font-weight: normal; margin-left: 12px; }
+.panels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+figure { margin: 0; min-width: 0; }
+figure img { display: block; width: 100%; height: auto; image-rendering: auto; border: 1px solid #ddd; }
+figcaption { color: #555; text-transform: capitalize; font-size: .9rem; margin-top: 5px; }
+@media (max-width: 850px) { .panels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { body { margin: 10px; } .panels { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<h1>Captured mask review</h1>
+<p class="intro">Compare each photo, hand annotation, generated binary mask, and foreground overlay. Green indicates foreground; red traces the boundary.</p>
+<section class="sample"><h2>Sample 1 <small>Foreground: 19.85%</small></h2><div class="panels"><figure><img src="../images_256/1.png" alt="photo 1"><figcaption>photo</figcaption></figure>
+<figure><img src="../masks_256/1.png" alt="annotation 1"><figcaption>annotation</figcaption></figure>
+<figure><img src="../masks_256_binary/1.png" alt="binary 1"><figcaption>binary</figcaption></figure>
+<figure><img src="overlays/1.png" alt="overlay 1"><figcaption>overlay</figcaption></figure></div></section>
+<section class="sample"><h2>Sample 2 <small>Foreground: 25.76%</small></h2><div class="panels"><figure><img src="../images_256/2.png" alt="photo 2"><figcaption>photo</figcaption></figure>
+<figure><img src="../masks_256/2.png" alt="annotation 2"><figcaption>annotation</figcaption></figure>
+<figure><img src="../masks_256_binary/2.png" alt="binary 2"><figcaption>binary</figcaption></figure>
+<figure><img src="overlays/2.png" alt="overlay 2"><figcaption>overlay</figcaption></figure></div></section>
+<section class="sample"><h2>Sample 3 <small>Foreground: 34.93%</small></h2><div class="panels"><figure><img src="../images_256/3.png" alt="photo 3"><figcaption>photo</figcaption></figure>
+<figure><img src="../masks_256/3.jpg" alt="annotation 3"><figcaption>annotation</figcaption></figure>
+<figure><img src="../masks_256_binary/3.png" alt="binary 3"><figcaption>binary</figcaption></figure>
+<figure><img src="overlays/3.png" alt="overlay 3"><figcaption>overlay</figcaption></figure></div></section>
+<section class="sample"><h2>Sample 4 <small>Foreground: 58.26%</small></h2><div class="panels"><figure><img src="../images_256/4.png" alt="photo 4"><figcaption>photo</figcaption></figure>
+<figure><img src="../masks_256/4.png" alt="annotation 4"><figcaption>annotation</figcaption></figure>
+<figure><img src="../masks_256_binary/4.png" alt="binary 4"><figcaption>binary</figcaption></figure>
+<figure><img src="overlays/4.png" alt="overlay 4"><figcaption>overlay</figcaption></figure></div></section>
+<section class="sample"><h2>Sample 5 <small>Foreground: 29.26%</small></h2><div class="panels"><figure><img src="../images_256/5.png" alt="photo 5"><figcaption>photo</figcaption></figure>
+<figure><img src="../masks_256/5.png" alt="annotation 5"><figcaption>annotation</figcaption></figure>
+<figure><img src="../masks_256_binary/5.png" alt="binary 5"><figcaption>binary</figcaption></figure>
+<figure><img src="overlays/5.png" alt="overlay 5"><figcaption>overlay</figcaption></figure></div></section>
+<section class="sample"><h2>Sample 6 <small>Foreground: 24.22%</small></h2><div class="panels"><figure><img src="../images_256/6.png" alt="photo 6"><figcaption>photo</figcaption></figure>
+<figure><img src="../masks_256/6.png" alt="annotation 6"><figcaption>annotation</figcaption></figure>
+<figure><img src="../masks_256_binary/6.png" alt="binary 6"><figcaption>binary</figcaption></figure>
+<figure><img src="overlays/6.png" alt="overlay 6"><figcaption>overlay</figcaption></figure></div></section>
+<section class="sample"><h2>Sample 7 <small>Foreground: 17.90%</small></h2><div class="panels"><figure><img src="../images_256/7.png" alt="photo 7"><figcaption>photo</figcaption></figure>
+<figure><img src="../masks_256/7.png" alt="annotation 7"><figcaption>annotation</figcaption></figure>
+<figure><img src="../masks_256_binary/7.png" alt="binary 7"><figcaption>binary</figcaption></figure>
+<figure><img src="overlays/7.png" alt="overlay 7"><figcaption>overlay</figcaption></figure></div></section>
+<section class="sample"><h2>Sample 8 <small>Foreground: 12.30%</small></h2><div class="panels"><figure><img src="../images_256/8.png" alt="photo 8"><figcaption>photo</figcaption></figure>
+<figure><img src="../masks_256/8.png" alt="annotation 8"><figcaption>annotation</figcaption></figure>
+<figure><img src="../masks_256_binary/8.png" alt="binary 8"><figcaption>binary</figcaption></figure>
+<figure><img src="overlays/8.png" alt="overlay 8"><figcaption>overlay</figcaption></figure></div></section>
+<section class="sample"><h2>Sample 9 <small>Foreground: 5.99%</small></h2><div class="panels"><figure><img src="../images_256/9.png" alt="photo 9"><figcaption>photo</figcaption></figure>
+<figure><img src="../masks_256/9.png" alt="annotation 9"><figcaption>annotation</figcaption></figure>
+<figure><img src="../masks_256_binary/9.png" alt="binary 9"><figcaption>binary</figcaption></figure>
+<figure><img src="overlays/9.png" alt="overlay 9"><figcaption>overlay</figcaption></figure></div></section>
+<section class="sample"><h2>Sample 10 <small>Foreground: 21.24%</small></h2><div class="panels"><figure><img src="../images_256/10.png" alt="photo 10"><figcaption>photo</figcaption></figure>
+<figure><img src="../masks_256/10.png" alt="annotation 10"><figcaption>annotation</figcaption></figure>
+<figure><img src="../masks_256_binary/10.png" alt="binary 10"><figcaption>binary</figcaption></figure>
+<figure><img src="overlays/10.png" alt="overlay 10"><figcaption>overlay</figcaption></figure></div></section>
+<section class="sample"><h2>Sample 11 <small>Foreground: 14.35%</small></h2><div class="panels"><figure><img src="../images_256/11.png" alt="photo 11"><figcaption>photo</figcaption></figure>
+<figure><img src="../masks_256/11.png" alt="annotation 11"><figcaption>annotation</figcaption></figure>
+<figure><img src="../masks_256_binary/11.png" alt="binary 11"><figcaption>binary</figcaption></figure>
+<figure><img src="overlays/11.png" alt="overlay 11"><figcaption>overlay</figcaption></figure></div></section>
+</body>
+</html>

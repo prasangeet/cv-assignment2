@@ -1,7 +1,7 @@
 {
   "evaluation": "captured_photos",
   "checkpoint": "final/unet_128_multiscale_v1/model_best.pt",
-  "num_images": 7,
+  "num_images": 11,
   "sample_ids": [
     "1",
     "2",
@@ -9,7 +9,11 @@
     "4",
     "5",
     "6",
-    "7"
+    "7",
+    "8",
+    "9",
+    "10",
+    "11"
   ],
   "resolution": [
     256,
@@ -18,31 +22,31 @@
   "threshold": 0.5,
   "device": "CPU",
   "cpu_threads": 1,
-  "foreground_iou": 0.7593320648487722,
-  "background_iou": 0.8793179731824406,
-  "aggregate_miou": 0.8193250190156065,
-  "mean_per_image_miou": 0.8262777414149322,
-  "mean_boundary_f1": 0.5629101885330663,
-  "quality_score": 0.7424005698708445,
+  "foreground_iou": 0.7773716531564726,
+  "background_iou": 0.91946141733403,
+  "aggregate_miou": 0.8484165352452513,
+  "mean_per_image_miou": 0.8531964861114701,
+  "mean_boundary_f1": 0.5977587436705517,
+  "quality_score": 0.7732191977728413,
   "confusion_matrix": [
     [
-      292149,
-      28857
+      517346,
+      30492
     ],
     [
-      11239,
-      126507
+      14824,
+      158234
     ]
   ],
   "latency": {
     "warmup_runs": 1,
     "repetitions_per_image": 20,
-    "total_timed_predictions": 140,
-    "average_cpu_ms_per_prediction": 17.06006887857142,
-    "median_cpu_ms_per_prediction": 16.614401,
-    "std_cpu_ms_per_prediction": 1.8335654452557657,
-    "min_cpu_ms_per_prediction": 14.626549999999572,
-    "max_cpu_ms_per_prediction": 21.59932600000003
+    "total_timed_predictions": 220,
+    "average_cpu_ms_per_prediction": 17.144667268181827,
+    "median_cpu_ms_per_prediction": 16.6660974999997,
+    "std_cpu_ms_per_prediction": 1.5789638045143968,
+    "min_cpu_ms_per_prediction": 14.57296900000049,
+    "max_cpu_ms_per_prediction": 22.295683000000288
   },
   "model_size_bytes": 767807,
   "model_size_mib": 0.7322378158569336,
@@ -59,8 +63,8 @@
       "miou": 0.9154111837338923,
       "boundary_f1": 0.7197006249203893,
       "foreground_pixels_percent": 19.84710693359375,
-      "cpu_ms_mean": 16.634412749999996,
-      "cpu_ms_std": 0.43142849151319684,
+      "cpu_ms_mean": 16.394818999999984,
+      "cpu_ms_std": 0.46006266999577144,
       "latency_repetitions": 20
     },
     {
@@ -73,8 +77,8 @@
       "miou": 0.5787912018816661,
       "boundary_f1": 0.2975890904163683,
       "foreground_pixels_percent": 25.76141357421875,
-      "cpu_ms_mean": 16.523739799999994,
-      "cpu_ms_std": 0.5882859048551542,
+      "cpu_ms_mean": 16.081005750000003,
+      "cpu_ms_std": 0.4099375880963493,
       "latency_repetitions": 20
     },
     {
@@ -87,8 +91,8 @@
       "miou": 0.8090834412977783,
       "boundary_f1": 0.44531994908305944,
       "foreground_pixels_percent": 34.930419921875,
-      "cpu_ms_mean": 17.432425499999972,
-      "cpu_ms_std": 1.5026920043280592,
+      "cpu_ms_mean": 16.967430299999986,
+      "cpu_ms_std": 1.2582133363636943,
       "latency_repetitions": 20
     },
     {
@@ -101,8 +105,8 @@
       "miou": 0.93830472932773,
       "boundary_f1": 0.6513594996178679,
       "foreground_pixels_percent": 58.25958251953125,
-      "cpu_ms_mean": 18.71009819999996,
-      "cpu_ms_std": 1.978459680467222,
+      "cpu_ms_mean": 19.248914449999965,
+      "cpu_ms_std": 1.7424753412076177,
       "latency_repetitions": 20
     },
     {
@@ -115,8 +119,8 @@
       "miou": 0.9442234257916018,
       "boundary_f1": 0.8666546935997657,
       "foreground_pixels_percent": 29.2633056640625,
-      "cpu_ms_mean": 18.927338900000002,
-      "cpu_ms_std": 1.8351522980248351,
+      "cpu_ms_mean": 17.027284999999992,
+      "cpu_ms_std": 1.3461880211922355,
       "latency_repetitions": 20
     },
     {
@@ -129,8 +133,8 @@
       "miou": 0.9499773599838123,
       "boundary_f1": 0.7946926587413375,
       "foreground_pixels_percent": 24.224853515625,
-      "cpu_ms_mean": 16.005495700000004,
-      "cpu_ms_std": 1.3441684976211532,
+      "cpu_ms_mean": 17.342858850000063,
+      "cpu_ms_std": 1.4560436994666264,
       "latency_repetitions": 20
     },
     {
@@ -143,8 +147,64 @@
       "miou": 0.6481528478880442,
       "boundary_f1": 0.1650548033526757,
       "foreground_pixels_percent": 17.89703369140625,
-      "cpu_ms_mean": 15.186971300000039,
-      "cpu_ms_std": 0.46601638910768384,
+      "cpu_ms_mean": 17.06369969999999,
+      "cpu_ms_std": 0.5206704945638553,
+      "latency_repetitions": 20
+    },
+    {
+      "id": "8",
+      "image": "captured/images_256/8.png",
+      "ground_truth_mask": "captured/masks_256_binary/8.png",
+      "prediction": "captured/evaluation/predictions/8.png",
+      "foreground_iou": 0.9302981960976807,
+      "background_iou": 0.9901992925545682,
+      "miou": 0.9602487443261245,
+      "boundary_f1": 0.867282531455085,
+      "foreground_pixels_percent": 12.3046875,
+      "cpu_ms_mean": 17.001317499999978,
+      "cpu_ms_std": 0.775684363643569,
+      "latency_repetitions": 20
+    },
+    {
+      "id": "9",
+      "image": "captured/images_256/9.png",
+      "ground_truth_mask": "captured/masks_256_binary/9.png",
+      "prediction": "captured/evaluation/predictions/9.png",
+      "foreground_iou": 0.5700511609602519,
+      "background_iou": 0.965117578505404,
+      "miou": 0.767584369732828,
+      "boundary_f1": 0.4346625030026423,
+      "foreground_pixels_percent": 5.987548828125,
+      "cpu_ms_mean": 18.346590549999984,
+      "cpu_ms_std": 1.965777441019515,
+      "latency_repetitions": 20
+    },
+    {
+      "id": "10",
+      "image": "captured/images_256/10.png",
+      "ground_truth_mask": "captured/masks_256_binary/10.png",
+      "prediction": "captured/evaluation/predictions/10.png",
+      "foreground_iou": 0.895624781239062,
+      "background_iou": 0.9717303098100186,
+      "miou": 0.9336775455245403,
+      "boundary_f1": 0.6440494060827568,
+      "foreground_pixels_percent": 21.240234375,
+      "cpu_ms_mean": 17.353826250000058,
+      "cpu_ms_std": 1.6581657526229199,
+      "latency_repetitions": 20
+    },
+    {
+      "id": "11",
+      "image": "captured/images_256/11.png",
+      "ground_truth_mask": "captured/masks_256_binary/11.png",
+      "prediction": "captured/evaluation/predictions/11.png",
+      "foreground_iou": 0.8965115046124483,
+      "background_iou": 0.9829014908638601,
+      "miou": 0.9397064977381542,
+      "boundary_f1": 0.6889804201041202,
+      "foreground_pixels_percent": 14.349365234375,
+      "cpu_ms_mean": 15.763592600000063,
+      "cpu_ms_std": 1.1737490838717732,
       "latency_repetitions": 20
     }
   ]
