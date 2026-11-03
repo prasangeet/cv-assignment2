@@ -547,7 +547,19 @@ uv run python predict.py \
 
 The prediction is saved as a 256 × 256 binary PNG. The CLI prints the assignment's two timing/size lines: `T CPU ms` and `S disk bytes`.
 
-### 10.7 Hardware and timing reproducibility
+### 10.7 Rebuilding the report
+
+The report source and figure-generation script are included. After synchronizing dependencies, regenerate the figures and compile the report from the repository root:
+
+```bash
+uv run python report/make_figs.py
+cd report
+latexmk -pdf -interaction=nonstopmode -halt-on-error report.tex
+```
+
+This writes the refreshed `report.pdf` in `report/`. The LaTeX toolchain (`latexmk` and `pdflatex`) must be installed separately.
+
+### 10.8 Hardware and timing reproducibility
 
 The committed official result records CPU-only inference with one PyTorch thread and one OpenCV thread. The training configuration records CUDA and mixed precision. The result JSON does not contain the CPU model identifier; the report records it separately, so verify that identifier on the same machine used for the timing run before submission. To inspect the processor on Linux, run:
 
