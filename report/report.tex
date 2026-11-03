@@ -320,7 +320,10 @@ The model achieves its goal as an efficiency trade-off: 17.3\,ms and 0.73\,MiB l
 \item evaluate on a larger, separately annotated hard-scene set, and take every design decision on validation data only.
 \end{itemize}
 
-\textbf{Reproducibility.} Code, the final checkpoint \texttt{final/unet\_128\_multiscale\_v1/model\_best.pt}, evaluation scripts and the captured photographs (\texttt{captured/\{original, images\_256, masks\_256\}}) are in the project repository. \texttt{predict.py --image photo.jpg --out mask.png} resizes the photo, segments it, saves a 0/255 PNG and prints \texttt{T CPU ms} and \texttt{S disk bytes} averaged over 20 further runs. The result files are \texttt{results\_duts-te\_256.json} and \texttt{results\_captured.json}.
+\textbf{Reproducibility.} The repository contains the final checkpoint \texttt{final/unet\_128\_multiscale\_v1/model\_best.pt}, training and evaluation code, and the captured-photo assets: originals, $256{\times}256$ inputs, manual annotations, binary masks, predictions and review visualizations. The mask-review script is \texttt{uv run python -m src.prepare\_captured\_masks}; the evaluator is \texttt{uv run python -m src.evaluate\_captured --checkpoint final/unet\_128\_multiscale\_v1/model\_best.pt}. The corresponding result files are \texttt{final/unet\_128\_multiscale\_v1/results\_duts-te\_256.json} and \texttt{captured/evaluation/results\_captured.json}.
 
+
+\section{Conclusion}
+The selected residual multi-scale U-Net meets both official resource constraints on DUTS-TE: the 256$\times$256 evaluation reports mIoU 0.7491, Boundary F1 0.5192, and CES 0.6205 at 17.32\,ms per image with a 767{,}807-byte checkpoint. The separate eleven-photo evaluation gives aggregate mIoU 0.8484 and quality $Q=0.7732$, with 17.1447\,ms mean CPU time across 220 timed predictions. The custom result is useful for inspecting selected real-world cases but is not a replacement for the official benchmark. Taken together, the experiments show that the model's primary remaining challenges are contour localization and robustness to clutter, occlusion, and small foreground regions rather than inference cost.
 
 \end{document}
