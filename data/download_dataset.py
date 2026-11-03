@@ -4,8 +4,8 @@ import shutil
 import sys
 import zipfile
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "data"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIR = PROJECT_ROOT / "data"
 DOWNLOAD_DIR = DATA_DIR / "downloads"
 
 DATASETS = {

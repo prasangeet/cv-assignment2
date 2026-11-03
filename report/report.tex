@@ -32,8 +32,8 @@
 \definecolor{paper}{HTML}{F4F7FA}
 \definecolor{rule}{HTML}{C9D3DE}
 
-% ---------- fill this in before submission ----------
-\newcommand{\cpumodel}{\textbf{\textcolor{coral}{[CPU model: 11th Gen Intel(R) Core(TM) i5-11400H @ 2.70GHz0]}}}
+% CPU model recorded for the latency measurement; confirm on the measurement host before submission.
+\newcommand{\cpumodel}{\texttt{11th Gen Intel(R) Core(TM) i5-11400H @ 2.70 GHz}}
 
 % ---------- typography ----------
 \setlength{\parindent}{0pt}
@@ -127,7 +127,7 @@ Own photos      & 7 & test only\\
 \textbf{Test-set hygiene.} DUTS-TE is never loaded by the training loop, never contributes gradients and is not used to pick the saved checkpoint. In full disclosure, however, DUTS-TE scores were looked at while comparing candidate designs during development, so it is not a strictly blind set. The reported figure is the single final run under the protocol below.
 
 \subsection{Preprocessing and augmentation}
-Following the assignment, every photo is resized to $256{\times}256$ with \texttt{cv2.INTER\_AREA} and every mask with \texttt{cv2.INTER\_NEAREST}; a mask pixel is object if its value is at least 128. All metrics are computed on these $256{\times}256$ masks. Inputs are RGB floats in $[0,1]$. During training only, image and mask receive the same random horizontal flip ($p{=}0.5$), vertical flip ($p{=}0.10$) and isotropic rescaling by $0.9$--$1.1$ ($p{=}0.5$, new border pixels are background); the image alone additionally gets brightness and per-channel gain jitter with clipping.
+During training and validation, the dataset loader resizes each original photograph directly to $128{\times}128$ with \texttt{cv2.INTER\_AREA} and its mask to $128{\times}128$ with \texttt{cv2.INTER\_NEAREST}; a mask pixel is object if its grayscale value is at least 128. Inputs are converted from BGR to RGB floats in $[0,1]$. The official DUTS-TE evaluation follows the assignment's $256{\times}256$ representation: the original photograph and ground-truth mask are first resized to $256{\times}256$ outside the timed region; the photograph is then downsampled to $128{\times}128$ inside the timed inference function, and the prediction is returned to $256{\times}256$ for metric computation. Thus, training/validation diagnostics are at $128{\times}128$, while official DUTS-TE metrics are at $256{\times}256$. During training only, image and mask receive the same random horizontal flip ($p{=}0.5$), vertical flip ($p{=}0.10$) and isotropic rescaling by $0.9$--$1.1$ ($p{=}0.5$, new border pixels are background); the image alone additionally gets brightness and per-channel gain jitter with clipping.
 
 % ============================================================
 \section{Method}
@@ -216,7 +216,7 @@ File I/O, resizing the original photograph to $256{\times}256$, loading the chec
 \end{itemize}
 $\Tcpu$ is the total \texttt{time.process\_time()} over all 5{,}019 DUTS-TE images divided by 5{,}019. The storage side is equally simple: the saved file is a plain, uncompressed PyTorch state dict of 767{,}807 bytes (0.7322\,MiB, 18.3\% of the 4\,MiB budget), all learned values live in it, and none are hard-coded.
 
-\textbf{Evaluation code.} Metrics are written from scratch in NumPy. mIoU accumulates one $2{\times}2$ confusion matrix over the set. For Boundary F1, boundary pixels are found with four shifted copies of the padded mask (pixels outside the image count as background), and the $5{\times}5$ tolerance check is a logical OR over 25 shifted slices of the boundary map, so no per-pixel Python loops or prohibited morphology calls are needed.
+\textbf{Evaluation code.} The official DUTS-TE evaluator in \texttt{src/evaluate.py} accumulates the dataset-level $2{\times}2$ confusion matrix with NumPy and computes Boundary F1 using OpenCV \texttt{filter2D}: a four-connected foreground boundary map followed by a $5{\times}5$ neighbourhood match (radius 2), with the image exterior treated as background. The companion \texttt{src/metrics.py} contains a NumPy slicing implementation used for training/validation diagnostics. Both implementations follow the same metric definitions; the official reported score is produced by \texttt{src/evaluate.py}.
 
 % ============================================================
 \section{Results}

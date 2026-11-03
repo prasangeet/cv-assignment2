@@ -1,50 +1,132 @@
-import cv2, numpy as np, pandas as pd, matplotlib
+"""Regenerate report figures from the repository's committed artifacts.
+
+Run from the repository root:
+    uv run python report/make_figs.py
+
+All input and output paths are resolved relative to this script.
+"""
+from pathlib import Path
+
+import cv2
+import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-R=""; O="/report_build/figs/"
-NAVY="#1F3A5F"; TEAL="#2A9D8F"; AMBER="#E9A23B"; CORAL="#E76F51"
-plt.rcParams.update({"font.family":"DejaVu Sans","font.size":8,"axes.spines.top":False,"axes.spines.right":False})
+import numpy as np
+import pandas as pd
 
-# 1. training curves
-h=pd.read_csv(R+"final/unet_128_multiscale_v1/history.csv")
-fig,ax=plt.subplots(1,2,figsize=(3.4,1.9),dpi=300)
-ax[0].plot(h.epoch,h.train_loss,color=NAVY,lw=1.2,label="train")
-ax[0].plot(h.epoch,h.val_loss,color=CORAL,lw=1.2,label="val")
-ax[0].set_xlabel("epoch"); ax[0].set_title("Loss",fontsize=8); ax[0].legend(frameon=False,fontsize=6.5)
-ax[1].plot(h.epoch,h.val_miou,color=NAVY,lw=1.2,label="mIoU")
-ax[1].plot(h.epoch,h.val_boundary_f1,color=TEAL,lw=1.2,label="BF1")
-ax[1].plot(h.epoch,h.val_quality,color=AMBER,lw=1.2,label="Q")
-ax[1].axvline(56,color="#999",lw=.6,ls="--"); ax[1].set_xlabel("epoch"); ax[1].set_title("Validation",fontsize=8)
-ax[1].legend(frameon=False,fontsize=6.5,loc="lower right")
-for a in ax: a.grid(alpha=.25,lw=.4)
-fig.tight_layout(pad=.4); fig.savefig(O+"curves.pdf"); plt.close(fig)
+ROOT = Path(__file__).resolve().parents[1]
+FIG_DIR = Path(__file__).resolve().parent / "figs"
+FIG_DIR.mkdir(parents=True, exist_ok=True)
 
-# 2. captured overlays: input / GT overlay / prediction overlay
-miou=[0.915,0.579,0.809,0.938,0.944,0.950,0.648]
-names=["Chair","Suitcase","Bicycles","Backpack","Clogs","Controller","Mouse"]
-def overlay(img,m,col):
-    out=img.astype(float).copy(); c=np.array(col,float)
-    out[m>0]=0.55*out[m>0]+0.45*c
-    cs,_=cv2.findContours((m>0).astype(np.uint8),cv2.RETR_LIST,cv2.CHAIN_APPROX_NONE)
-    out=out.astype(np.uint8); cv2.drawContours(out,cs,-1,col,1); return out
-fig,ax=plt.subplots(3,7,figsize=(7.2,3.55),dpi=300)
-for i in range(7):
-    img=cv2.cvtColor(cv2.imread(R+f"captured/images_256/{i+1}.png"),cv2.COLOR_BGR2RGB)
-    gt=cv2.imread(R+f"captured/masks_256_binary/{i+1}.png",0)
-    pr=cv2.imread(R+f"captured/evaluation/predictions/{i+1}.png",0)
-    for r,im in enumerate([img,overlay(img,gt,(42,157,143)),overlay(img,pr,(231,111,81))]):
-        ax[r,i].imshow(im); ax[r,i].set_xticks([]); ax[r,i].set_yticks([])
-        for s in ax[r,i].spines.values(): s.set_visible(False)
-    ax[0,i].set_title(f"{i+1}. {names[i]}\nmIoU {miou[i]:.3f}",fontsize=6.5,pad=2)
-for r,t in enumerate(["Photo","Ground truth","Prediction"]):
-    ax[r,0].set_ylabel(t,fontsize=7)
-fig.subplots_adjust(wspace=.03,hspace=.03,left=.04,right=.995,top=.9,bottom=.005)
-fig.savefig(O+"captured.pdf"); plt.close(fig)
+NAVY = "#1F3A5F"
+TEAL = "#2A9D8F"
+AMBER = "#E9A23B"
+CORAL = "#E76F51"
 
-# 3. DUTS-TE qualitative: rows (0-based) of the 8-row example sheet
-sheet=cv2.cvtColor(cv2.imread(R+"final/unet_128_multiscale_v1/segmentation_examples_256.png"),cv2.COLOR_BGR2RGB)
-H=sheet.shape[0]//8
-rows=[2,7,3,5]
-strip=np.vstack([sheet[r*H:(r+1)*H,:1350] for r in rows])
-cv2.imwrite(O+"duts.png",cv2.cvtColor(strip,cv2.COLOR_RGB2BGR))
-print(strip.shape)
+plt.rcParams.update({
+    "font.family": "DejaVu Sans",
+    "font.size": 8,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+})
+
+
+def read_image(path: Path, flags: int = cv2.IMREAD_COLOR) -> np.ndarray:
+    image = cv2.imread(str(path), flags)
+    if image is None:
+        raise FileNotFoundError(f"Could not read image: {path}")
+    return image
+
+
+# 1. Training curves.
+history_path = ROOT / "final/unet_128_multiscale_v1/history.csv"
+history = pd.read_csv(history_path)
+
+fig, axes = plt.subplots(1, 2, figsize=(3.4, 1.9), dpi=300)
+axes[0].plot(history.epoch, history.train_loss, color=NAVY, lw=1.2, label="train")
+axes[0].plot(history.epoch, history.val_loss, color=CORAL, lw=1.2, label="val")
+axes[0].set_xlabel("epoch")
+axes[0].set_title("Loss", fontsize=8)
+axes[0].legend(frameon=False, fontsize=6.5)
+
+axes[1].plot(history.epoch, history.val_miou, color=NAVY, lw=1.2, label="mIoU")
+axes[1].plot(history.epoch, history.val_boundary_f1, color=TEAL, lw=1.2, label="BF1")
+axes[1].plot(history.epoch, history.val_quality, color=AMBER, lw=1.2, label="Q")
+axes[1].axvline(56, color="#999", lw=0.6, ls="--")
+axes[1].set_xlabel("epoch")
+axes[1].set_title("Validation", fontsize=8)
+axes[1].legend(frameon=False, fontsize=6.5, loc="lower right")
+
+for axis in axes:
+    axis.grid(alpha=0.25, lw=0.4)
+fig.tight_layout(pad=0.4)
+fig.savefig(FIG_DIR / "curves.pdf")
+plt.close(fig)
+
+
+# 2. Captured overlays: input, ground-truth overlay, prediction overlay.
+miou = [0.915, 0.579, 0.809, 0.938, 0.944, 0.950, 0.648]
+names = ["Chair", "Suitcase", "Bicycles", "Backpack", "Clogs", "Controller", "Mouse"]
+
+
+def overlay(image: np.ndarray, mask: np.ndarray, color: tuple[int, int, int]) -> np.ndarray:
+    output = image.astype(float).copy()
+    tint = np.array(color, dtype=float)
+    output[mask > 0] = 0.55 * output[mask > 0] + 0.45 * tint
+    contours, _ = cv2.findContours(
+        (mask > 0).astype(np.uint8),
+        cv2.RETR_LIST,
+        cv2.CHAIN_APPROX_NONE,
+    )
+    output = output.astype(np.uint8)
+    cv2.drawContours(output, contours, -1, color, 1)
+    return output
+
+
+fig, axes = plt.subplots(3, 7, figsize=(7.2, 3.55), dpi=300)
+for index in range(7):
+    sample_id = index + 1
+    image_path = ROOT / f"captured/images_256/{sample_id}.png"
+    ground_truth_path = ROOT / f"captured/masks_256_binary/{sample_id}.png"
+    prediction_path = ROOT / f"captured/evaluation/predictions/{sample_id}.png"
+
+    image = cv2.cvtColor(read_image(image_path), cv2.COLOR_BGR2RGB)
+    ground_truth = read_image(ground_truth_path, cv2.IMREAD_GRAYSCALE)
+    prediction = read_image(prediction_path, cv2.IMREAD_GRAYSCALE)
+
+    panels = [
+        image,
+        overlay(image, ground_truth, (42, 157, 143)),
+        overlay(image, prediction, (231, 111, 81)),
+    ]
+    for row, panel in enumerate(panels):
+        axes[row, index].imshow(panel)
+        axes[row, index].set_xticks([])
+        axes[row, index].set_yticks([])
+        for spine in axes[row, index].spines.values():
+            spine.set_visible(False)
+
+    axes[0, index].set_title(
+        f"{sample_id}. {names[index]}\nmIoU {miou[index]:.3f}",
+        fontsize=6.5,
+        pad=2,
+    )
+
+for row, label in enumerate(["Photo", "Ground truth", "Prediction"]):
+    axes[row, 0].set_ylabel(label, fontsize=7)
+
+fig.subplots_adjust(wspace=0.03, hspace=0.03, left=0.04, right=0.995, top=0.9, bottom=0.005)
+fig.savefig(FIG_DIR / "captured.pdf")
+plt.close(fig)
+
+
+# 3. DUTS-TE qualitative examples: selected rows from the 8-row example sheet.
+sheet_path = ROOT / "final/unet_128_multiscale_v1/segmentation_examples_256.png"
+sheet = cv2.cvtColor(read_image(sheet_path), cv2.COLOR_BGR2RGB)
+height = sheet.shape[0] // 8
+rows = [2, 7, 3, 5]
+strip = np.vstack([sheet[row * height:(row + 1) * height, :1350] for row in rows])
+if not cv2.imwrite(str(FIG_DIR / "duts.png"), cv2.cvtColor(strip, cv2.COLOR_RGB2BGR)):
+    raise RuntimeError("Could not write report/figs/duts.png")
+
+print(f"Report figures written to {FIG_DIR}")
