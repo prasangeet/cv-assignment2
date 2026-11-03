@@ -105,7 +105,7 @@ for index in range(7):
             spine.set_visible(False)
 
     axes[0, index].set_title(
-        f"{sample_id}. {names[index]}\\nmIoU {miou[index]:.3f}",
+        f"{sample_id}. {names[index]}\nmIoU {miou[index]:.3f}",
         fontsize=6.5,
         pad=2,
     )
