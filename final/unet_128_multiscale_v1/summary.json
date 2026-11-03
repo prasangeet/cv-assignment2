@@ -4,6 +4,6 @@
   "best_epoch": 56,
   "epochs_completed": 60,
   "trainable_parameters": 175971,
-  "best_checkpoint": "experiments/unet_128_multiscale_v1/model_best.pt",
-  "resume_checkpoint": "experiments/unet_128_multiscale_v1/training_state.pt"
+  "best_checkpoint": "final/unet_128_multiscale_v1/model_best.pt",
+  "resume_checkpoint": "final/unet_128_multiscale_v1/training_state.pt"
 }
