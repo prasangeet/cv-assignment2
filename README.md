@@ -408,7 +408,7 @@ Only the visible target region is foreground in occluded scenes. The labels are 
 | Checkpoint size | 767,807 bytes |
 | CES | Not calculated for this custom set |
 
-The aggregate mIoU is calculated from the combined confusion matrix. Mean per-image mIoU is shown separately because it gives every photograph equal weight. The quality score uses aggregate mIoU and mean per-image Boundary F1: (Q=0.70,mIoU+0.30,BF1). Captured-photo CES is deliberately left unset; the official CES uses the full DUTS-TE timing protocol.
+The aggregate mIoU is calculated from the combined confusion matrix. Mean per-image mIoU is shown separately because it gives every photograph equal weight. The quality score is computed as Q = 0.70 × aggregate mIoU + 0.30 × mean per-image Boundary F1. Captured-photo CES is deliberately left unset; the official CES uses the full DUTS-TE timing protocol.
 
 ### 8.3 Per-image results
 
