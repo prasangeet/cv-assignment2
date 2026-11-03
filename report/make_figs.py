@@ -1,7 +1,9 @@
 """Regenerate report figures from the repository's committed artifacts.
 
-Run from any working directory:
-    python report/make_figs.py
+Run from the repository root:
+    uv run python report/make_figs.py
+
+All input and output paths are resolved relative to this script.
 """
 from pathlib import Path
 
