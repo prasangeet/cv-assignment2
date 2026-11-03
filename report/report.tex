@@ -1,7 +1,7 @@
 % ============================================================
 %  CSL7360 Computer Vision - Assignment 2 report
 %  Cost-Efficient Salient Object Segmentation
-%  Compile: pdflatex report.tex  (run twice for references)
+%  Compile: latexmk -pdf -interaction=nonstopmode -halt-on-error report.tex
 % ============================================================
 \documentclass[10pt,a4paper,twocolumn]{article}
 
@@ -32,7 +32,7 @@
 \definecolor{paper}{HTML}{F4F7FA}
 \definecolor{rule}{HTML}{C9D3DE}
 
-% ---------- fill this in before submission ----------
+% ---------- CPU used for the reported timing run ----------
 \newcommand{\cpumodel}{\texttt{11th Gen Intel(R) Core(TM) i5-11400H @ 2.70 GHz}}
 
 % ---------- typography ----------
@@ -47,7 +47,7 @@
 \titlespacing*{\section}{0pt}{1.1em}{0.5em}
 \titlespacing*{\subsection}{0pt}{0.8em}{0.3em}
 
-\setlength{\headheight}{14pt}
+\setlength{\headheight}{19pt}
 \pagestyle{fancy}
 \fancyhf{}
 \renewcommand{\headrulewidth}{0.4pt}
@@ -95,7 +95,7 @@ We build a binary salient-object segmenter that has to label every pixel of a $2
 
 % ============================================================
 \section{Introduction}
-The assignment asks for a pipeline that separates the main object from the background, scored by
+The assignment asks for a pipeline that separates the salient foreground object from the background. Fully convolutional networks provide a natural formulation for dense, pixel-wise prediction, while encoder--decoder architectures use skip connections to combine coarse semantic features with finer spatial information \cite{long2015fcn,ronneberger2015unet}. The present work adapts these ideas to a strict CPU-time and model-size budget. The system is scored by
 \begin{equation}
 Q = 0.70\,\mathrm{mIoU} + 0.30\,\mathrm{BF1},
 \end{equation}
@@ -107,7 +107,7 @@ with CES set to zero if $\Tcpu>50$\,ms. We follow \emph{Track B} (a small fully 
 % ============================================================
 \section{Data and Preprocessing}
 \subsection{Splits}
-DUTS-TR (10{,}553 images) is split into a training and a validation part; DUTS-TE (5{,}019 images) is the final benchmark. The validation set is $10\%$ of DUTS-TR, drawn deterministically (seed 42) and stratified by foreground area: images are sorted by the fraction of mask pixels that are object, cut into strata, and sampled within each stratum, so that small and large objects appear in both parts in similar proportions.
+The experiments use the DUTS salient-object dataset, which provides separate training and test partitions for salient-object detection \cite{wang2017duts,dutswebsite}. DUTS-TR (10{,}553 images) is split into a training and a validation part; DUTS-TE (5{,}019 images) is the final benchmark. The validation set is $10\%$ of DUTS-TR, drawn deterministically (seed 42) and stratified by foreground area: images are sorted by the fraction of mask pixels that are object, cut into strata, and sampled within each stratum, so that small and large objects appear in both parts in similar proportions.
 
 \begin{table}[h]
 \centering\small
@@ -124,7 +124,7 @@ Own photos      & 11 & supplementary test only\\
 \caption{Dataset splits.}
 \end{table}
 
-\textbf{Test-set hygiene.} DUTS-TE is never loaded by the training loop, never contributes gradients and is not used to pick the saved checkpoint. In full disclosure, however, DUTS-TE scores were looked at while comparing candidate designs during development, so it is not a strictly blind set. The reported figure is the single final run under the protocol below.
+\textbf{Test-set hygiene.} DUTS-TE is not loaded by the training loop, contributes no gradient updates, and is not used for within-run checkpoint selection. However, DUTS-TE results were inspected during iterative comparisons of candidate designs. The test set must therefore not be described as a completely untouched blind set. The number reported here is the final evaluation run under the protocol described below.
 
 \subsection{Preprocessing and augmentation}
 Training and validation use the \texttt{DUTSDataset} loader, which resizes each original DUTS-TR photograph directly to $128{\times}128$ with \texttt{cv2.INTER\_AREA} and each mask to $128{\times}128$ with \texttt{cv2.INTER\_NEAREST}. A mask pixel is foreground when its grayscale value is at least 128. The official DUTS-TE evaluator follows a separate path: it prepares the photograph and mask at $256{\times}256$ outside the timed region, downsamples the photograph to the model's $128{\times}128$ working resolution inside the timed region, then upsamples logits and computes metrics at $256{\times}256$. Captured photographs are also prepared at $256{\times}256$ and paired with manually annotated masks, which are thresholded at 128 to make binary targets. Inputs are converted from BGR to RGB and normalized to $[0,1]$. During DUTS-TR training only, image and mask receive the same random horizontal flip ($p{=}0.5$), vertical flip ($p{=}0.10$) and isotropic rescaling by $0.9$--$1.1$ ($p{=}0.5$, new border pixels are background); the image alone additionally gets brightness and per-channel gain jitter with clipping.
@@ -132,11 +132,11 @@ Training and validation use the \texttt{DUTSDataset} loader, which resizes each 
 % ============================================================
 \section{Method}
 \subsection{Architecture}
-The network (Fig.~\ref{fig:arch}) is a three-level residual U-Net with 175{,}971 trainable parameters. Each encoder block has two $3{\times}3$ convolutions with batch norm and ReLU plus a residual shortcut (projected with a $1{\times}1$ convolution when channel counts differ). Channel widths are kept very small, $16\!\to\!24\!\to\!40\!\to\!56$, and max pooling halves the resolution between stages.
+The network (Fig.~\ref{fig:arch}) is a compact, three-level residual U-Net with 175{,}971 trainable parameters. Its encoder--decoder organization and skip connections follow the general design principles of U-Net and fully convolutional segmentation networks \cite{ronneberger2015unet,long2015fcn}; the residual blocks use identity or projected shortcuts in the spirit of residual learning \cite{he2016resnet}. Each encoder block has two $3{\times}3$ convolutions with batch normalization and ReLU, plus a projected residual shortcut when the channel counts differ. Channel widths are deliberately narrow, $16\!\to\!24\!\to\!40\!\to\!56$, and max pooling halves the spatial resolution between stages.
 
-\textbf{Dilated multi-scale context.} Salient objects range from a computer mouse to a whole backpack, so the bottleneck (at $1/8$ of the working resolution) needs several receptive-field sizes. Three parallel branches, each a $1{\times}1$ projection to 16 channels followed by a \emph{depthwise} $3{\times}3$ convolution with dilation 1, 2 and 4, are concatenated, projected back to 56 channels and added to the bottleneck input. Depthwise convolutions give the wider context for a fraction of the parameters and multiply--adds of a full dilated block.
+\textbf{Dilated multi-scale context.} Salient objects range from a computer mouse to a whole backpack, so the bottleneck (at $1/8$ of the working resolution) needs several receptive-field sizes. Three parallel branches, each a $1{\times}1$ projection to 16 channels followed by a \emph{depthwise} $3{\times}3$ convolution with dilation 1, 2 and 4, are concatenated, projected back to 56 channels and added to the bottleneck input. Using several dilation rates follows the principle of multi-scale context aggregation with dilated convolutions \cite{yu2016dilated}. The depthwise operation is a parameter-efficient convolutional factorization used in lightweight network designs such as MobileNets \cite{howard2017mobilenets}; here it keeps the contextual branches small.
 
-\textbf{Decoder and skips.} The decoder upsamples, concatenates the matching encoder feature (U-Net style skip connections) and applies a residual block: $56{+}40\!\to\!40$, $40{+}24\!\to\!24$, $24{+}16\!\to\!16$. A final $1{\times}1$ convolution gives one logit per pixel. Two auxiliary $1{\times}1$ heads on the quarter- and half-resolution decoder stages exist \emph{only during training}; at inference only the main head runs.
+\textbf{Decoder and skips.} The decoder upsamples, concatenates the matching encoder feature (U-Net style skip connections) and applies a residual block: $56{+}40\!\to\!40$, $40{+}24\!\to\!24$, $24{+}16\!\to\!16$. A final $1{\times}1$ convolution gives one logit per pixel. Two auxiliary $1{\times}1$ heads on the quarter- and half-resolution decoder stages provide deep supervision during training, following the general idea of companion objectives at intermediate layers \cite{lee2015dsn}; at inference only the main head runs.
 
 % ---------- architecture figure (full width) ----------
 \begin{figure*}[t]
@@ -178,7 +178,7 @@ The network (Fig.~\ref{fig:arch}) is a three-level residual U-Net with 175{,}971
 \end{figure*}
 
 \subsection{Loss and training}
-Every supervised output uses an equal mix of binary cross-entropy (with logits) and soft Dice loss,
+Every supervised output uses an equal mix of binary cross-entropy (with logits) and soft Dice loss. Dice-based objectives have been used in segmentation to optimize overlap directly and to mitigate foreground--background imbalance \cite{milletari2016vnet}. The combined loss is
 \begin{equation}
 \mathcal{L}_{\text{base}} = 0.5\,\mathcal{L}_{\text{BCE}} + 0.5\,\mathcal{L}_{\text{Dice}},
 \end{equation}
@@ -186,9 +186,9 @@ and deep supervision weights the main and auxiliary outputs as
 \begin{equation}
 \mathcal{L} = 0.60\,\mathcal{L}_{\text{main}} + 0.15\,\mathcal{L}_{1/4} + 0.25\,\mathcal{L}_{1/2}.
 \end{equation}
-BCE gives stable per-pixel gradients, while Dice counteracts the strong background majority that makes plain cross-entropy under-segment small objects.
+The BCE term provides a per-pixel classification objective, while the Dice term emphasizes region overlap and helps counter the foreground--background imbalance. The chosen 50:50 weighting is an experimental setting for this model, not a value prescribed by the cited work.
 
-We train from scratch (no pretrained weights) with AdamW for 60 epochs on a GPU, batch size 8 with 2 accumulation steps (effective 16), peak learning rate $7{\times}10^{-4}$, 3 epochs of linear warm-up followed by cosine decay to $10^{-6}$, weight decay $10^{-5}$ (not applied to biases and normalisation parameters), gradient clipping at 1.0 and mixed precision. The checkpoint is chosen by validation quality $Q_{\text{val}}=0.70\,\mathrm{mIoU}+0.30\,\mathrm{BF1}$, which peaked at epoch 56 (Fig.~\ref{fig:curves}).
+We train from scratch (no pretrained weights) with AdamW, which decouples weight decay from the adaptive gradient update \cite{loshchilov2019adamw}, for 60 epochs on a GPU, batch size 8 with 2 accumulation steps (effective 16), peak learning rate $7{\times}10^{-4}$, 3 epochs of linear warm-up followed by cosine decay to $10^{-6}$, weight decay $10^{-5}$ (not applied to biases and normalisation parameters), gradient clipping at 1.0 and mixed precision. The checkpoint is chosen by validation quality $Q_{\text{val}}=0.70\,\mathrm{mIoU}+0.30\,\mathrm{BF1}$, which peaked at epoch 56 (Fig.~\ref{fig:curves}).
 
 \begin{figure}[t]
 \centering
@@ -216,7 +216,7 @@ File I/O, resizing the original photograph to $256{\times}256$, loading the chec
 \end{itemize}
 $\Tcpu$ is the total \texttt{time.process\_time()} over all 5{,}019 DUTS-TE images divided by 5{,}019. The storage side is equally simple: the saved file is a plain, uncompressed PyTorch state dict of 767{,}807 bytes (0.7322\,MiB, 18.3\% of the 4\,MiB budget), all learned values live in it, and none are hard-coded.
 
-\textbf{Evaluation code.} The official \texttt{src/evaluate.py} computes the four-connected foreground boundary and the $5{\times}5$ tolerance neighbourhood with OpenCV \texttt{filter2D}, using constant-zero borders so pixels outside the image count as background. The separate helper in \texttt{src/metrics.py} implements the corresponding boundary-neighbourhood operations with NumPy slicing. In both cases, mIoU is derived from one aggregate $2{\times}2$ confusion matrix and Boundary F1 is averaged over images.
+\textbf{Evaluation implementation.} The official \texttt{src/evaluate.py} computes a four-connected foreground boundary and matches boundary pixels within a $5{\times}5$ neighbourhood (radius 2) using OpenCV \texttt{filter2D}. Constant-zero borders make pixels outside the image count as background. The helper in \texttt{src/metrics.py} implements the corresponding neighbourhood operations with NumPy slicing. For both paths, mIoU is derived from one aggregate $2{\times}2$ confusion matrix, while Boundary F1 is computed per image and then averaged. This is the project evaluation protocol; the tolerance radius is fixed at two pixels. Boundary evaluation is sensitive to the matching tolerance and annotation quality; the adopted neighbourhood and border convention are therefore stated explicitly rather than treating Boundary F1 as a protocol-independent quantity \cite{hou2013boundary}.
 
 % ============================================================
 \section{Results}
@@ -312,7 +312,7 @@ Timing over 220 predictions averaged 17.1447\,ms (median 16.6661\,ms, std.\ 1.57
 
 % ============================================================
 \section{Discussion and Future Work}
-The model achieves its goal as an efficiency trade-off: 17.3\,ms and 0.73\,MiB leave most of both budgets unused, and CES is reduced by only 8.8\% relative to $Q$. Since the budget is so far from binding, the most promising next steps spend some of it on quality:
+The model achieves its goal as an efficiency trade-off: 17.3\,ms and 0.73\,MiB leave most of both budgets unused, and the official CES is 0.6205, approximately 8.8\% below the quality score $Q$ after the prescribed time and size penalties. Since the budget is so far from binding, the most promising next steps spend some of it on quality:
 \begin{itemize}
 \item raise the working resolution (e.g.\ $160$ or $192$) and measure the gain against the $0.4\%$-per-millisecond cost;
 \item add boundary-aware supervision (e.g.\ an edge loss), aimed directly at the weak BF1 term;
@@ -320,10 +320,86 @@ The model achieves its goal as an efficiency trade-off: 17.3\,ms and 0.73\,MiB l
 \item evaluate on a larger, separately annotated hard-scene set, and take every design decision on validation data only.
 \end{itemize}
 
-\textbf{Reproducibility.} The repository contains the final checkpoint \texttt{final/unet\_128\_multiscale\_v1/model\_best.pt}, training and evaluation code, and the captured-photo assets: originals, $256{\times}256$ inputs, manual annotations, binary masks, predictions and review visualizations. The mask-review script is \texttt{uv run python -m src.prepare\_captured\_masks}; the evaluator is \texttt{uv run python -m src.evaluate\_captured --checkpoint final/unet\_128\_multiscale\_v1/model\_best.pt}. The corresponding result files are \texttt{final/unet\_128\_multiscale\_v1/results\_duts-te\_256.json} and \texttt{captured/evaluation/results\_captured.json}.
+\textbf{Reproducibility.} The repository contains the final checkpoint \path{final/unet_128_multiscale_v1/model_best.pt}, training and evaluation code, and the captured-photo assets: originals, $256{\times}256$ inputs, manual annotations, binary masks, predictions and review visualizations. The mask-review script is \texttt{uv run python -m src.prepare\_captured\_masks}; the evaluator is \texttt{uv run python -m src.evaluate\_captured --checkpoint final/unet\_128\_multiscale\_v1/model\_best.pt}. The corresponding result files are \path{final/unet_128_multiscale_v1/results_duts-te_256.json} and \path{captured/evaluation/results_captured.json}.
 
 
 \section{Conclusion}
-The selected residual multi-scale U-Net meets both official resource constraints on DUTS-TE: the 256$\times$256 evaluation reports mIoU 0.7491, Boundary F1 0.5192, and CES 0.6205 at 17.32\,ms per image with a 767{,}807-byte checkpoint. The separate eleven-photo evaluation gives aggregate mIoU 0.8484 and quality $Q=0.7732$, with 17.1447\,ms mean CPU time across 220 timed predictions. The custom result is useful for inspecting selected real-world cases but is not a replacement for the official benchmark. Taken together, the experiments show that the model's primary remaining challenges are contour localization and robustness to clutter, occlusion, and small foreground regions rather than inference cost.
+The selected residual multi-scale U-Net meets both official resource constraints on DUTS-TE: the 256$\times$256 evaluation reports mIoU 0.7491, Boundary F1 0.5192, and CES 0.6205 at 17.32\,ms per image with a 767{,}807-byte checkpoint. The separate eleven-photo evaluation gives aggregate mIoU 0.8484 and quality $Q=0.7732$, with 17.1447\,ms mean CPU time across 220 timed predictions. The custom result is useful for inspecting selected real-world cases but is not a replacement for the official benchmark and is too small to support population-level claims. Taken together, the experiments show that the model's primary remaining challenges are contour localization and robustness to clutter, occlusion, and small foreground regions rather than inference cost.
+
+
+% ============================================================
+\begin{thebibliography}{99}
+\small
+
+\bibitem{wang2017duts}
+L. Wang, H. Lu, Y. Wang, M. Feng, D. Wang, B. Yin, and X. Ruan,
+``Learning to Detect Salient Objects With Image-Level Supervision,''
+in \emph{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+2017, pp. 136--145.
+[Online]. Available: \url{https://openaccess.thecvf.com/content_cvpr_2017/html/Wang_Learning_to_Detect_CVPR_2017_paper.html}.
+
+\bibitem{dutswebsite}
+L. Wang, H. Lu, and collaborators,
+``The DUTS Image Dataset,'' project dataset page.
+[Online]. Available: \url{https://saliencydetection.net/duts/}.
+
+\bibitem{long2015fcn}
+J. Long, E. Shelhamer, and T. Darrell,
+``Fully Convolutional Networks for Semantic Segmentation,''
+in \emph{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+2015, pp. 3431--3440, doi: 10.1109/CVPR.2015.7298965.
+
+\bibitem{ronneberger2015unet}
+O. Ronneberger, P. Fischer, and T. Brox,
+``U-Net: Convolutional Networks for Biomedical Image Segmentation,''
+in \emph{Medical Image Computing and Computer-Assisted Intervention (MICCAI)},
+Lecture Notes in Computer Science, vol. 9351, 2015, pp. 234--241,
+doi: 10.1007/978-3-319-24574-4\_28.
+
+\bibitem{he2016resnet}
+K. He, X. Zhang, S. Ren, and J. Sun,
+``Deep Residual Learning for Image Recognition,''
+in \emph{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+2016, pp. 770--778, doi: 10.1109/CVPR.2016.90.
+
+\bibitem{yu2016dilated}
+F. Yu and V. Koltun,
+``Multi-Scale Context Aggregation by Dilated Convolutions,''
+in \emph{International Conference on Learning Representations (ICLR)}, 2016.
+[Online]. Available: \url{https://arxiv.org/abs/1511.07122}.
+
+\bibitem{howard2017mobilenets}
+A. G. Howard, M. Zhu, B. Chen, D. Kalenichenko, W. Wang, T. Weyand,
+M. Andreetto, and H. Adam,
+``MobileNets: Efficient Convolutional Neural Networks for Mobile Vision Applications,''
+arXiv:1704.04861, 2017. [Online]. Available: \url{https://arxiv.org/abs/1704.04861}.
+
+\bibitem{lee2015dsn}
+C.-Y. Lee, S. Xie, P. Gallagher, Z. Zhang, and Z. Tu,
+``Deeply-Supervised Nets,''
+in \emph{Proceedings of the Eighteenth International Conference on Artificial Intelligence and Statistics},
+Proceedings of Machine Learning Research, vol. 38, 2015, pp. 562--570.
+[Online]. Available: \url{https://proceedings.mlr.press/v38/lee15a.html}.
+
+\bibitem{milletari2016vnet}
+F. Milletari, N. Navab, and S.-A. Ahmadi,
+``V-Net: Fully Convolutional Neural Networks for Volumetric Medical Image Segmentation,''
+in \emph{Proceedings of the Fourth International Conference on 3D Vision (3DV)},
+2016, pp. 565--571, doi: 10.1109/3DV.2016.79.
+
+\bibitem{loshchilov2019adamw}
+I. Loshchilov and F. Hutter,
+``Decoupled Weight Decay Regularization,''
+in \emph{International Conference on Learning Representations (ICLR)}, 2019.
+[Online]. Available: \url{https://arxiv.org/abs/1711.05101}.
+
+\bibitem{hou2013boundary}
+X. Hou, A. Yuille, and C. Koch,
+``Boundary Detection Benchmarking: Beyond F-Measures,''
+in \emph{Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR)},
+2013, pp. 2123--2130.
+[Online]. Available: \url{https://openaccess.thecvf.com/content_cvpr_2013/html/Hou_Boundary_Detection_Benchmarking_2013_CVPR_paper.html}.
+
+\end{thebibliography}
 
 \end{document}
