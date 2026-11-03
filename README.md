@@ -5,7 +5,7 @@
 **Roll Number:** B23CH1033  
 **Course:** CSL7360 — Computer Vision
 
-This repository contains a lightweight binary salient-object segmentation system built with PyTorch and evaluated under a constrained CPU-inference budget. The experiments use DUTS for training, validation, and the official test benchmark, followed by a separate evaluation on seven manually captured photographs.
+This repository contains a lightweight binary salient-object segmentation system built with PyTorch and evaluated under a constrained CPU-inference budget. The experiments use DUTS for training, validation, and the official test benchmark, followed by a separate evaluation on eleven manually captured photographs.
 
 The project studies the trade-off between segmentation quality, boundary accuracy, inference latency, and serialized model size. It also documents where the model generalizes well and where it fails on cluttered, occluded, or visually ambiguous scenes.
 
@@ -51,20 +51,20 @@ The measured CPU time is below the assignment limit of 50 ms per image. The chec
 
 ### Personal-photo result
 
-The supplementary evaluation uses all seven paired personal photographs and their manually drawn binary masks.
+The supplementary evaluation uses all eleven paired personal photographs and their manually drawn binary masks.
 
 | Measure | Result |
 |---|---:|
-| Number of photographs | 7 |
+| Number of photographs | 11 |
 | Resolution | 256 × 256 |
-| Foreground IoU | 0.759332 |
-| Background IoU | 0.879318 |
-| **Aggregate mIoU** | **0.819325** |
-| Mean per-image mIoU | 0.826278 |
-| Mean per-image Boundary F1 | 0.562910 |
-| Quality score Q | 0.742401 |
-| Mean CPU time over 140 timed predictions | 17.0601 ms |
-| Median CPU time over 140 timed predictions | 16.6144 ms |
+| Foreground IoU | 0.777372 |
+| Background IoU | 0.919461 |
+| **Aggregate mIoU** | **0.848417** |
+| Mean per-image mIoU | 0.853196 |
+| Mean per-image Boundary F1 | 0.597759 |
+| Quality score Q | 0.773219 |
+| Mean CPU time over 220 timed predictions | 17.1447 ms |
+| Median CPU time over 220 timed predictions | 16.6661 ms |
 | Checkpoint size | 767,807 bytes |
 | CES | Not calculated for this custom set |
 
@@ -371,100 +371,114 @@ The best training-loop validation mIoU was 0.881865 and the official DUTS-TE mIo
 
 ## 8. Supplementary evaluation on personal photographs
 
-Seven phone photographs were retained in the captured-photo evaluation. Each has a manually annotated binary target mask. The evaluation includes every paired image, including difficult and ambiguous examples, rather than dropping poor-performing scenes.
+Eleven phone photographs were retained in the captured-photo evaluation. Each has a manually annotated binary target mask. The evaluator includes every matching image–mask pair, including difficult and ambiguous scenes, rather than dropping poor-performing examples. This is a small, manually selected stress test and not a statistically representative benchmark.
 
 ### 8.1 Captured scenes
 
 | ID | Target definition | Scene characteristic |
 |---|---|---|
-| 1 | Chair in a clothes-covered / occluded scene | Heavy overlap and clutter |
+| 1 | Chair in a clothes-covered / occluded scene | Heavy overlap and clutter; composite target |
 | 2 | Suitcase | Partly covered by nearby objects; dark internal details |
-| 3 | Two bicycles as the annotated foreground region | Multiple overlapping structures and thin boundaries |
+| 3 | Two bicycles as one annotated foreground region | Overlapping structures, spokes, and thin boundaries |
 | 4 | Backpack | Cluttered background |
 | 5 | Pair of clogs | Two similar foreground objects |
 | 6 | Game controller | Relatively distinct object silhouette |
 | 7 | Computer mouse | Small object on a textured mousepad / cluttered background |
+| 8 | Bird perched on a rail | Small foreground subject against a bright, reflective window |
+| 9 | Cat looking through a window | Small foreground region with window bars and a detailed exterior |
+| 10 | Kitten | Close-up animal subject against a textured floor and wall |
+| 11 | Wristwatch | Small, detailed object on a wrist with a blurred background |
 
-Only visible object pixels were labelled as foreground in occluded regions. These masks are manually annotated and are therefore subject to boundary-placement uncertainty. In particular, IDs 1 and 3 use composite/overlapping scene definitions; their scores should be interpreted according to those target definitions.
+Only the visible target region is foreground in occluded scenes. The labels are based on the manual masks, not on an automatic class annotation. In particular, IDs 1 and 3 use composite scene definitions; their scores should be interpreted according to those target definitions.
 
 ### 8.2 Aggregate captured-photo metrics
 
 | Metric | Result |
 |---|---:|
-| Foreground IoU | 0.759332 |
-| Background IoU | 0.879318 |
-| **Aggregate mIoU** | **0.819325** |
-| Mean per-image mIoU | 0.826278 |
-| Mean Boundary F1 | 0.562910 |
-| **Quality Q** | **0.742401** |
+| Number of photographs | 11 |
+| Resolution | 256 × 256 |
+| Foreground IoU | 0.777372 |
+| Background IoU | 0.919461 |
+| **Aggregate mIoU** | **0.848417** |
+| Mean per-image mIoU | 0.853196 |
+| Mean per-image Boundary F1 | 0.597759 |
+| **Quality Q** | **0.773219** |
+| Mean CPU time over 220 timed predictions | 17.1447 ms |
+| Median CPU time over 220 timed predictions | 16.6661 ms |
+| Checkpoint size | 767,807 bytes |
+| CES | Not calculated for this custom set |
 
-The aggregate mIoU is calculated from the combined confusion matrix. Mean per-image mIoU is shown separately because it weights each of the seven photographs equally. They answer different questions and are not expected to be identical.
+The aggregate mIoU is calculated from the combined confusion matrix. Mean per-image mIoU is shown separately because it gives every photograph equal weight. The quality score uses aggregate mIoU and mean per-image Boundary F1: (Q=0.70,mIoU+0.30,BF1). Captured-photo CES is deliberately left unset; the official CES uses the full DUTS-TE timing protocol.
 
 ### 8.3 Per-image results
 
 | ID | Target | Foreground IoU | Background IoU | mIoU | Boundary F1 | Mean CPU (ms) |
 |---|---|---:|---:|---:|---:|---:|
-| 1 | Occluded chair scene | 0.866912 | 0.963910 | 0.915411 | 0.719701 | 16.6344 |
-| 2 | Suitcase | 0.468532 | 0.689050 | 0.578791 | 0.297589 | 16.5237 |
-| 3 | Two bicycles | 0.747097 | 0.871070 | 0.809083 | 0.445320 | 17.4324 |
-| 4 | Backpack | 0.947325 | 0.929285 | 0.938305 | 0.651359 | 18.7101 |
-| 5 | Pair of clogs | 0.922388 | 0.966059 | 0.944223 | 0.866655 | 18.9273 |
-| 6 | Game controller | 0.924217 | 0.975738 | 0.949977 | 0.794693 | 16.0055 |
-| 7 | Computer mouse | 0.503365 | 0.792940 | 0.648153 | 0.165055 | 15.1870 |
+| 1 | Occluded chair scene | 0.866912 | 0.963910 | 0.915411 | 0.719701 | 16.3948 |
+| 2 | Suitcase | 0.468532 | 0.689050 | 0.578791 | 0.297589 | 16.0810 |
+| 3 | Two bicycles | 0.747097 | 0.871070 | 0.809083 | 0.445320 | 16.9674 |
+| 4 | Backpack | 0.947325 | 0.929285 | 0.938305 | 0.651359 | 19.2489 |
+| 5 | Pair of clogs | 0.922388 | 0.966059 | 0.944223 | 0.866655 | 17.0273 |
+| 6 | Game controller | 0.924217 | 0.975738 | 0.949977 | 0.794693 | 17.3429 |
+| 7 | Computer mouse | 0.503365 | 0.792940 | 0.648153 | 0.165055 | 17.0637 |
+| 8 | Bird | 0.930298 | 0.990199 | 0.960249 | 0.867283 | 17.0013 |
+| 9 | Cat at window | 0.570051 | 0.965118 | 0.767584 | 0.434663 | 18.3466 |
+| 10 | Kitten | 0.895625 | 0.971730 | 0.933678 | 0.644049 | 17.3538 |
+| 11 | Wristwatch | 0.896512 | 0.982901 | 0.939706 | 0.688980 | 15.7636 |
 
 ### 8.4 Captured-photo timing
 
-The captured evaluator performs one warm-up prediction, then 20 timed predictions for each of the seven in-memory images: 140 timed predictions in total. The same 256-to-128-to-256 inference function is timed. The image and mask are read before timing, and metric calculation and visualization writing are outside the timed region.
+The captured evaluator performs one warm-up prediction, then 20 timed predictions for each of the eleven in-memory images: 220 timed predictions in total. The same 256-to-128-to-256 inference function is timed. Image and mask reads, metric calculation, and visualization writing are outside the timed region.
 
 | Timing statistic | Result |
 |---|---:|
-| Timed predictions | 140 |
-| Mean CPU time | 17.0601 ms |
-| Median CPU time | 16.6144 ms |
-| Standard deviation | 1.8336 ms |
-| Minimum | 14.6265 ms |
-| Maximum | 21.5993 ms |
+| Timed predictions | 220 |
+| Mean CPU time | 17.1447 ms |
+| Median CPU time | 16.6661 ms |
+| Standard deviation | 1.5790 ms |
+| Minimum | 14.5730 ms |
+| Maximum | 22.2957 ms |
 
-These timings are supplementary measurements on seven repeated images. They are not the official T_CPU, which is the average over all 5,019 DUTS-TE images.
+These timings are supplementary measurements over eleven selected photographs. They are not the official T_CPU, which is the average over all 5,019 DUTS-TE images.
 
 ### 8.5 Failure analysis
 
-**Suitcase (ID 2).** This is one of the weakest examples: foreground IoU is 0.468532 and Boundary F1 is 0.297589. The prediction misses portions of the suitcase and contains internal holes. Dark handles, seams, and other high-contrast details can make a single coherent foreground region difficult to recover.
+**Suitcase (ID 2).** This remains the weakest region-overlap example: foreground IoU is 0.468532, mIoU is 0.578791, and Boundary F1 is 0.297589. The prediction misses portions of the suitcase and contains internal holes. Dark handles, seams, and surrounding clutter make it difficult to recover one coherent foreground region.
 
-**Computer mouse (ID 7).** This is the weakest boundary result: mIoU is 0.648153 and Boundary F1 is 0.165055. The prediction spills into parts of the mousepad and surrounding region. The relatively low foreground IoU (0.503365) is consistent with substantial foreground/background confusion.
+**Computer mouse (ID 7).** This remains the weakest boundary result: mIoU is 0.648153 and Boundary F1 is 0.165055. The prediction spills into parts of the textured mousepad and surrounding region. Fine contour placement is particularly important for this small object.
 
-**Bicycles (ID 3).** The region score is moderate (mIoU 0.809083), but Boundary F1 is lower (0.445320). Thin structures, spokes, frame members, and overlap between two bicycles make boundary localization difficult. This illustrates why region overlap alone is not enough to describe segmentation quality.
+**Bicycles (ID 3).** Region overlap is moderate (mIoU 0.809083), but Boundary F1 is 0.445320. Spokes, frame members, and the overlap between the two bicycles make boundary localization difficult. This illustrates why region overlap alone is not enough to describe segmentation quality.
 
-**Backpack (ID 4).** The mIoU is high (0.938305), but Boundary F1 is 0.651359. The object region is mostly recovered while some contour mismatch remains.
+**Cat at the window (ID 9).** The annotated foreground occupies only 5.99% of the image. Foreground IoU is 0.570051, mIoU is 0.767584, and Boundary F1 is 0.434663. The small subject and strong structure in the window and exterior make accurate foreground recovery and contour placement more demanding.
 
-**Clogs and controller (IDs 5 and 6).** These are the strongest region results, with mIoU 0.944223 and 0.949977 respectively. Their Boundary F1 values (0.866655 and 0.794693) also indicate better contour agreement than the challenging examples.
+**New high-scoring examples.** The bird (ID 8) reaches mIoU 0.960249 and Boundary F1 0.867283. The kitten (ID 10) reaches mIoU 0.933678, while the wristwatch (ID 11) reaches mIoU 0.939706. These are encouraging examples on this selected set, but they do not establish broad class-level generalization.
+
+**Backpack, clogs, and controller (IDs 4–6).** These examples have high region scores (mIoU 0.938305–0.949977), with remaining differences in boundary quality. They provide useful contrast with the suitcase, mouse, bicycles, and window-cat scenes.
 
 ID 1 has a high score under its manually defined composite/occluded target. Because the target is not an isolated, unobstructed chair, this score should not be used to claim that the model reliably segments chairs in general.
 
 ### 8.6 Captured-photo visualizations
 
-The figure shows, for each photograph, the input, manual ground-truth mask, model prediction, and prediction overlay.
+The evaluation visualization contains the input, manual ground-truth mask, model prediction, and prediction overlay for each paired image:
 
 ![Captured-photo segmentation results](captured/evaluation/segmentation_examples_256.png)
 
-The annotation review sheet is also retained:
+The mask review assets include the combined review sheet and a browser gallery comparing the photo, original annotation, binary mask, and overlay:
 
-![Captured-photo mask review](captured/mask_review.jpg)
+![Captured-photo mask review](captured/mask_review/review_sheet.jpg)
 
-The personal-photo experiment is a small, manually annotated stress test. Seven examples are not enough to estimate population-level generalization or to support statistical claims. These photographs were not used to train the model or select the saved checkpoint.
-
----
-
+Open `captured/mask_review/index.html` for the per-sample gallery. The eleven photographs were not used to train the model or select the saved checkpoint. Manual annotation boundaries remain a source of uncertainty, especially for occluded or overlapping targets.
+ 
 ## 9. Interpreting the experiments together
 
 The two evaluation sets serve different purposes:
 
 - **DUTS-TE** provides the official dataset-level quality and efficiency result. Its 5,019 images are used for the reported mIoU, Boundary F1, T_CPU, model size, Q, and CES.
-- **Captured photographs** provide a small supplementary check on personally selected real-world scenes. They expose concrete behaviours on occlusion, clutter, multiple similar objects, and fine boundaries.
+- **Captured photographs** provide a supplementary check on eleven personally selected real-world scenes. They expose behaviour on occlusion, clutter, multiple similar objects, fine boundaries, small animals, and a small accessory.
 
-The captured-photo aggregate mIoU (0.819325) is higher than the DUTS-TE mIoU (0.749080), but this does not mean the custom photographs are an easier or more representative benchmark in a statistically controlled sense. There are only seven images, target definitions vary, and the scene distribution is selected rather than sampled. The per-image results and failure visualizations are more informative than treating the two aggregate values as a direct ranking.
+The captured-photo aggregate mIoU (0.848417) is higher than the DUTS-TE mIoU (0.749080), but this does not mean the custom photographs are an easier or more representative benchmark in a statistically controlled sense. The custom set is small, hand-selected, and manually annotated, with varying target definitions. The per-image results and failure visualizations are more informative than treating the two aggregate values as a direct ranking.
 
-Across both evaluations, the model is compact and comfortably within the CPU and storage budgets. Its main weakness is segmentation quality at foreground boundaries and in cluttered scenes, rather than raw inference cost.
+Across both evaluations, the model is compact and comfortably within the CPU and storage budgets. Its main weakness is segmentation quality at foreground boundaries and in cluttered or visually ambiguous scenes, rather than raw inference cost.
 
 ---
 
@@ -523,20 +537,38 @@ uv run python -m src.evaluate \
 
 This evaluates the full 5,019-image DUTS-TE split and writes the 256 × 256 result JSON and segmentation examples into the final experiment directory.
 
-### 10.5 Captured-photo evaluation
+### 10.5 Captured-mask preparation and review
+
+The source annotations in `captured/masks_256/` are preserved. This command converts each matching annotation to a binary 0/255 mask using threshold 128, then regenerates the overlays, contact sheets, combined review sheet, HTML gallery, and CSV summary:
+
+```bash
+uv run python -m src.prepare_captured_masks
+```
+
+The script expects matching image and annotation stems in `captured/images_256/` and `captured/masks_256/`. It checks the complete set of pairs and image/mask dimensions before evaluation. Outputs are written to:
+
+- `captured/masks_256_binary/`
+- `captured/mask_review/overlays/`
+- `captured/mask_review/review_sheet.jpg`
+- `captured/mask_review/index.html`
+- `captured/mask_review/summary.csv`
+
+Review the HTML gallery before running the evaluator.
+
+### 10.6 Captured-photo evaluation
 
 ```bash
 uv run python -m src.evaluate_captured \
   --checkpoint final/unet_128_multiscale_v1/model_best.pt
 ```
 
-This evaluates all paired images in `captured/images_256` and `captured/masks_256_binary`, runs 20 timed predictions per image after a warm-up, and overwrites:
+This evaluates all matching images in `captured/images_256` and binary masks in `captured/masks_256_binary`, runs 20 timed predictions per image after a warm-up, and overwrites:
 
 - `captured/evaluation/results_captured.json`
 - `captured/evaluation/predictions/`
 - `captured/evaluation/segmentation_examples_256.png`
 
-### 10.6 Single-image inference
+### 10.7 Single-image inference
 
 ```bash
 uv run python predict.py \
@@ -547,9 +579,9 @@ uv run python predict.py \
 
 The prediction is saved as a 256 × 256 binary PNG. The CLI prints the assignment's two timing/size lines: `T CPU ms` and `S disk bytes`.
 
-### 10.7 Rebuilding the report
+### 10.8 Rebuilding the report
 
-The report source and figure-generation script are included. After synchronizing dependencies, regenerate the figures and compile the report from the repository root:
+The report source and figure-generation script are included. From the repository root, regenerate figures using the committed training history, captured images, masks, and predictions, then compile the LaTeX source:
 
 ```bash
 uv run python report/make_figs.py
@@ -557,9 +589,19 @@ cd report
 latexmk -pdf -interaction=nonstopmode -halt-on-error report.tex
 ```
 
-This writes the refreshed `report.pdf` in `report/`. The LaTeX toolchain (`latexmk` and `pdflatex`) must be installed separately.
+This writes the generated figures to `report/figs/` and the refreshed `report.pdf` to `report/`. The LaTeX toolchain (`latexmk` and `pdflatex`) must be installed separately. Generated figures and the PDF are build outputs; the report source is tracked in Git.
 
-### 10.8 Hardware and timing reproducibility
+### 10.9 Hardware and timing reproducibility
+
+The committed official result records CPU-only inference with one PyTorch thread and one OpenCV thread. The training configuration records CUDA and mixed precision. The result JSON does not contain the CPU model identifier; the report records the processor used for the timing run separately. To inspect the processor on Linux, run:
+
+```bash
+lscpu | grep -E "Model name|CPU\\(s\\)"
+```
+
+CPU timing varies with processor, operating-system load, power state, and software versions. Re-run the official evaluator on the target machine when reproducing the timing result.
+
+### 10.9 Hardware and timing reproducibility
 
 The committed official result records CPU-only inference with one PyTorch thread and one OpenCV thread. The training configuration records CUDA and mixed precision. The result JSON does not contain the CPU model identifier; the report records it separately, so verify that identifier on the same machine used for the timing run before submission. To inspect the processor on Linux, run:
 
@@ -576,12 +618,13 @@ CPU timing varies with processor, operating-system load, power state, and softwa
 ```text
 .
 ├── captured/
-│   ├── original/                     # Original phone photographs
+│   ├── original/                     # Original phone photographs (11)
 │   ├── images_256/                   # Resized 256x256 photographs
 │   ├── masks_256/                    # Original editor exports
 │   ├── masks_256_binary/             # Binary 0/255 ground-truth masks
+│   ├── mask_review/                  # Contact sheets, overlays, HTML, CSV
 │   └── evaluation/
-│       ├── predictions/              # Model predictions
+│       ├── predictions/              # Model predictions for all paired photos
 │       ├── results_captured.json     # Custom-set metrics and timing
 │       └── segmentation_examples_256.png
 ├── data/
@@ -605,10 +648,8 @@ CPU timing varies with processor, operating-system load, power state, and softwa
 ├── models/
 │   └── segmentation_cnn.py
 ├── report/
-│   ├── figs/                         # Figures used by the report
-│   ├── make_figs.py                  # Regenerates report figures
-│   ├── report.pdf
-│   └── report.tex
+│   ├── make_figs.py                  # Rebuilds report figures from committed data
+│   └── report.tex                   # LaTeX report source
 ├── src/
 │   ├── benchmark_latency.py
 │   ├── dataset.py
@@ -616,6 +657,7 @@ CPU timing varies with processor, operating-system load, power state, and softwa
 │   ├── evaluate_captured.py
 │   ├── metrics.py
 │   ├── prepare_captured.py
+│   ├── prepare_captured_masks.py
 │   └── train.py
 ├── tests/
 ├── predict.py
@@ -624,7 +666,7 @@ CPU timing varies with processor, operating-system load, power state, and softwa
 └── README.md
 ```
 
-The original DUTS datasets and downloaded archives are not committed. The final checkpoint, training artifacts, report figures/PDF, and captured-photo evaluation artifacts are included in the repository.
+The original DUTS datasets and downloaded archives are not committed. The final checkpoint, training artifacts, original/processed captured photos, masks, captured evaluation outputs, report source, and figure-generation script are included. Rebuildable report figures and the compiled PDF are generated locally using Section 10.8.
 
 ---
 
@@ -633,7 +675,7 @@ The original DUTS datasets and downloaded archives are not committed. The final 
 1. **Validation-to-test gap:** validation checkpoint-selection scores are substantially higher than DUTS-TE test scores. The resolution difference and iterative test-set inspection should be considered when interpreting generalization.
 2. **Boundary quality:** Boundary F1 is lower than region overlap. Fine contours, thin structures, and partially occluded objects remain difficult.
 3. **Foreground recall:** DUTS-TE foreground IoU is much lower than background IoU, indicating that recovering object regions is more difficult than preserving background.
-4. **Small custom set:** seven manually captured images are useful for failure inspection but are not a statistically representative evaluation dataset.
+4. **Small custom set:** eleven manually captured images are useful for failure inspection but are not a statistically representative evaluation dataset.
 5. **Manual-mask uncertainty:** annotation choices on occluded and overlapping objects affect per-image scores. Consistent target definitions are important.
 6. **Hardware metadata:** the exact CPU model was not captured in the committed result JSON and should be recorded alongside any newly reported timing run.
 
@@ -645,4 +687,4 @@ Potential follow-up experiments include increasing input resolution while measur
 
 The final residual multi-scale U-Net demonstrates that a compact segmentation model can satisfy the assignment's CPU and disk budgets: the official DUTS-TE run reports 17.3210 ms per image and a 767,807-byte checkpoint, producing a CES of 0.620539. The official 256 × 256 mIoU is 0.749080, with Boundary F1 of 0.519177.
 
-The seven captured photographs provide a complementary view of practical behaviour. The model handles several clearly defined objects well, but the suitcase, mouse, and overlapping bicycles expose weaknesses in foreground recovery and boundary localization. Overall, the experiments show a viable efficiency-quality trade-off while identifying contour precision, clutter robustness, and generalization as the main opportunities for improvement.
+The eleven captured photographs provide a complementary view of practical behaviour. The model handles several clearly defined objects well, including the bird, kitten, and wristwatch examples, but the suitcase, mouse, overlapping bicycles, and cat-at-window scene expose weaknesses in foreground recovery and boundary localization. Overall, the experiments show a viable efficiency-quality trade-off while identifying contour precision, clutter robustness, and generalization as the main opportunities for improvement.
